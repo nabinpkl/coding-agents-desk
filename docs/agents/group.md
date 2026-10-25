@@ -1,8 +1,10 @@
 # Working on Group
 
 Group is the group chat tab and its own server process (`docs/plans/group-chat.md`). It is built
-fresh, on Effect, to standards set before its first line. This page is read before any change to
-Group's code, its tests, or the panel code that calls it.
+fresh, on Effect, to standards set before its first line, in a package of its own:
+`agent-feed/group/`, with its own `tsconfig.json`, `.oxlintrc.json`, ast-grep rules and tests
+(ADR-0155). This page is read before any change to Group's code, its tests, or the panel code that
+calls it; `agent-feed/group/AGENTS.md` has the package's commands.
 
 ## The standards, and no escape hatch
 
@@ -14,10 +16,12 @@ Group's code, its tests, or the panel code that calls it.
 | Everything every change in this repository follows: file and directory caps, no relative imports, lint, format, commits by pathspec | the root `AGENTS.md` |
 
 Skills live in `.agents/skills/`; `.claude/skills` points there, so Claude and other agents read one
-copy. The parts of them a tool can check are checked on every `just check`: oxlint keeps Group from
-importing the rest of the sidecar and Effect from spreading outside Group, and ast-grep
-(`tools/ast-grep/group/`) holds Group's Effect code to its patterns (`group-effect`, "What the gate
-enforces").
+copy. The parts of them a tool can check are checked on every `just check`: Group's compiler
+settings and tests in the `agent-feed-group-check` leg, its own oxlint config and its ast-grep rules
+(`agent-feed/group/ast-grep/`) in the fitness leg, and the repository's oxlint config keeps Effect
+and Group out of the sidecar (`group-effect`, "What the gate enforces"). Group's config copies the
+rules the sidecar learned rather than inheriting them, so a lesson added to the sidecar's lint is
+copied into Group's when it applies there too.
 
 **The existing codebase is not a precedent for Group.** The sidecar and the panel grew feature by
 feature, steered bug by bug: the sidecar matches HTTP paths by hand in a chain of handlers, answers
@@ -30,7 +34,8 @@ the design doc first, with the reason and the date; then the code.
 
 What the existing code is good for is what it found out: measurements and traps that cost real
 debugging. Group carries those over as behaviour, each as a test that pins it, written in Group's own
-structure. It never imports the sidecar's or the arena's modules, copies their shape, or wraps them.
+structure. It never imports the sidecar's or the arena's modules, copies their shape, or wraps them,
+and its lint refuses an import from outside its package.
 What Group needs from the sidecar (sending through the messaging hub, the session catalog,
 transcripts) it asks for over the sidecar's own HTTP routes, as the panel does.
 
@@ -70,7 +75,8 @@ Full clones, git-ignored, read-only (`.gitignore` says how to recreate them):
 - `.reference/zalando-api-guidelines`: every API rule under its number.
 - `.reference/opencode`, `.reference/t3code`: the two projects closest to Group, both on Effect;
   OpenCode's ast-grep rules for Effect patterns (`script/ast-grep/`) are the starting point for
-  Group's own lint.
+  Group's own lint, and its `packages/core/test/lib/effect.ts` for Group's test helper; t3code's
+  `tsconfig.base.json` for Group's compiler settings.
 
 Code brought in verbatim keeps its copyright line and licence beside it. Effect, OpenCode and t3code
 are MIT; Zalando's guidelines are CC BY 4.0, so text from them is credited and marked as changed.

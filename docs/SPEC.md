@@ -411,6 +411,16 @@ judges from the facts and the sessions (ADR-0127). The main decisions:
   A lane may argue against the prompt (ADR-0151), and a pass can send one lane's answer to the other
   side (ADR-0152).
 
+## Group
+
+Group, the group chat tab, is being built as its own server process in its own package,
+`agent-feed/group/`, on Effect: the pilot for the rest of the sidecar (ADR-0155). Its entry point is
+`src/GroupMain.ts`; its HTTP API is defined first as an Effect `HttpApi` contract (`src/api/`),
+served under `/api/group/` with an OpenAPI document generated from it. It has its own compiler
+settings, lint and tests, and imports nothing from the rest of the repository. The design, what is
+decided and what is open, is `docs/plans/group-chat.md`. On 2026-10-25 it answers a health check
+only, and neither the supervisor nor the panel reaches it yet.
+
 ## The messaging hub and questions for the owner
 
 The messaging hub (`agent-feed/hub/`) passes messages between the owner and agent sessions on every
@@ -514,12 +524,13 @@ their wire shapes included, and [dormant-native.md](dormant-native.md) their ope
 `just check-legs` runs every leg, and `just swift-check` builds and tests the native code, which
 `just check` does not. The fitness checks in `tools/agent-feed-fitness.sh` enforce the rules that
 apply to every change, among them: at most 500 lines per file, at most 12 source files per
-directory, and imports by absolute path only, in `packages/AgentPanel/Web/src` and
-`agent-feed/sidecar/src`; lint with oxlint; format with oxfmt at 120 columns; and personal data kept
+directory, and imports by absolute path only, in `packages/AgentPanel/Web/src`,
+`agent-feed/sidecar/src` and `agent-feed/group/src`; lint with oxlint (Group with its own config); format with oxfmt at 120 columns; and personal data kept
 out of the tree (`tools/public-scan/`). `main` reaches the public repository only through
 `just publish`, which scans every commit it sends and refuses what is not a fast-forward, and a
 pre-push hook refuses any other push there (`tools/publish.sh`, `tools/git-hooks/pre-push`). The
-sidecar's tests run under `bun test --parallel` and the panel's under Vitest. A sidecar test waits
+sidecar's tests run under `bun test --parallel`, Group's under `bun test` in a leg of their own,
+and the panel's under Vitest. A sidecar test waits
 for what it expects, never for a length of time, and the lint gate refuses a timer in one.
 
 ## Cross-references

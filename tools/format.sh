@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Formats the two live TypeScript trees and the wire they share with oxfmt, under `.oxfmtrc.json`.
+# Formats the live TypeScript trees (the panel, the sidecar, Group) and the wire with oxfmt, under
+# `.oxfmtrc.json`.
 #
 #   tools/format.sh                  rewrite every file that is not formatted
 #   tools/format.sh <path>...        rewrite only these files: the ones you changed
@@ -35,4 +36,4 @@ if [ "${#paths[@]}" -gt 0 ]; then
 fi
 exec packages/AgentPanel/Web/node_modules/.bin/oxfmt -c .oxfmtrc.json ${options[@]+"${options[@]}"} \
     'packages/AgentPanel/Web/src/**/*.ts' 'packages/AgentPanel/Web/src/**/*.tsx' \
-    'agent-feed/sidecar/src/**/*.ts' 'agent-feed/wire/**/*.ts' '!**/node_modules/**'
+    'agent-feed/sidecar/src/**/*.ts' 'agent-feed/wire/**/*.ts' 'agent-feed/group/src/**/*.ts' '!**/node_modules/**'

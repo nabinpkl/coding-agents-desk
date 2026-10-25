@@ -1,13 +1,14 @@
 # Group's ast-grep rules
 
-Structural lint for Group's Effect code (`agent-feed/sidecar/src/group/`), the half of its
-standards (`.agents/skills/group-effect/SKILL.md`) that oxlint's import rules cannot see. Check 8 of
+Structural lint for Group's Effect code (`agent-feed/group/src/`), the half of its standards
+(`.agents/skills/group-effect/SKILL.md`) that oxlint's import rules cannot see. Check 8 of
 `tools/agent-feed-fitness.sh` runs `ast-grep test` on every gate, so every rule is shown failing on
-its own invalid cases, and `ast-grep scan` over Group's code once that code exists.
+its own invalid cases, and then `ast-grep scan` over Group's code. The rules live in Group's package
+beside its `.oxlintrc.json`, so the package carries its whole toolchain (ADR-0155).
 
 ```sh
-packages/AgentPanel/Web/node_modules/.bin/ast-grep test -c tools/ast-grep/group/sgconfig.yml
-packages/AgentPanel/Web/node_modules/.bin/ast-grep scan -c tools/ast-grep/group/sgconfig.yml agent-feed/sidecar/src/group
+packages/AgentPanel/Web/node_modules/.bin/ast-grep test -c agent-feed/group/ast-grep/sgconfig.yml
+packages/AgentPanel/Web/node_modules/.bin/ast-grep scan -c agent-feed/group/ast-grep/sgconfig.yml agent-feed/group/src
 ```
 
 ## Where the rules come from
@@ -29,7 +30,7 @@ rules; and `no-drizzle-column-name`, which is about a database layer Group does 
 Group's own:
 
 - `no-run-outside-edge` keeps `Effect.run*` and `ManagedRuntime.make` to a program's `*Main.ts`
-  entry point and its tests.
+  entry point, its tests, and the test helper under `src/testing/`.
 - `no-raw-io-outside-edge` keeps `node:fs`, `node:fs/promises`, `node:child_process`, value
   imports from `bun`, and `Bun.spawn`, `Bun.spawnSync`, `Bun.file`, `Bun.write` and `Bun.$` there
   too, so the rest of Group reaches files and processes through Effect's services.

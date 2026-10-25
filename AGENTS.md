@@ -16,7 +16,7 @@ under `docs/agents/`, and is read when its situation comes up:
 | --- | --- |
 | changing or verifying the panel (`packages/AgentPanel/Web/`) | `packages/AgentPanel/Web/AGENTS.md` |
 | changing the sidecar (`agent-feed/sidecar/`) | `agent-feed/sidecar/AGENTS.md` |
-| building or changing Group, the group chat tab and its server process | `docs/agents/group.md`, then the `group-effect` and `group-api-design` skills; the rest of the codebase is no precedent for it |
+| building or changing Group, the group chat tab and its server process (`agent-feed/group/`) | `docs/agents/group.md`, then the `group-effect` and `group-api-design` skills, then `agent-feed/group/AGENTS.md`; the rest of the codebase is no precedent for it |
 | verifying a panel change in a browser | `docs/agents/browser-testing.md` |
 | running `just host-run`, touching the dev server, the supervisor, the login launch or the runtime root, or changing Swift or `terminal/pty-manager/` | `docs/agents/dev-loop.md` |
 | splitting a file, or adding one to a directory near twelve files | `docs/agents/file-and-directory-caps.md` |
@@ -53,8 +53,8 @@ map exists to stop you getting wrong":
 # Repository layout
 
 - `AGENTS.md` this file. Operating rules that apply to every change, and the index above.
-- `packages/AgentPanel/Web/AGENTS.md`, `agent-feed/sidecar/AGENTS.md` the rules for working in those
-  two trees. Each has a `CLAUDE.md` beside it that imports it.
+- `packages/AgentPanel/Web/AGENTS.md`, `agent-feed/sidecar/AGENTS.md`, `agent-feed/group/AGENTS.md`
+  the rules for working in those three trees. Each has a `CLAUDE.md` beside it that imports it.
 - `docs/agents/` operating detail by situation, indexed above.
 - `docs/PRD.md` product intent.
 - `docs/SPEC.md` technical shape.
@@ -126,9 +126,9 @@ Each is the short form; the file named holds the full text and the measurements 
   container. A fix under that branch does nothing on the phone, and behaviour meant to be universal
   belongs above it. ("Two input paths", `packages/AgentPanel/Web/AGENTS.md`.)
 - **500 lines per file, 12 source files per directory, no relative imports**, in
-  `packages/AgentPanel/Web/src` and `agent-feed/sidecar/src` (a test rides with its source; `@/` is
-  the project's src, `@repo/` the repository). Fitness checks 5 to 7 and the pre-commit hook enforce
-  them. A directory at twelve owes a split of the files already in it: never append a new idea to a
+  `packages/AgentPanel/Web/src`, `agent-feed/sidecar/src` and `agent-feed/group/src` (a test rides
+  with its source; `@/` is the project's src, `@repo/` the repository). Fitness checks 5 to 7 and
+  the pre-commit hook enforce them. A directory at twelve owes a split of the files already in it: never append a new idea to a
   file named for another, and never give the newcomer a subdirectory of its own.
   (`docs/agents/file-and-directory-caps.md`.)
 - **Re-read before you trust anything, and commit by pathspec.** Several sessions commit to `main` in

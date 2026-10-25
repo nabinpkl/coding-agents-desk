@@ -513,28 +513,41 @@ guard's limits, the arena's lanes that time out without stopping), and never for
 priors**: Group does not import the arena, and does not take its structure from the sidecar's
 modules.
 
-The server-side home, set 2026-10-25 (the lint is written against it): `agent-feed/sidecar/src/group/`,
-**its own process inside the sidecar package**, not a package of its own. A package of its own was
-proposed first and dropped on investigation:
+The server-side home, settled 2026-10-25 in ADR-0155: **`agent-feed/group/`, a package of its
+own**, with its own `package.json`, `tsconfig.json`, `.oxlintrc.json`, ast-grep rules and tests, and
+a gate leg of its own (`agent-feed-group-check`). It is the third home recorded that day, each from
+a measurement the one before lacked:
 
-- **The isolation comes from the process, not the package.** The audio process is the precedent: a
-  second entry point in the sidecar package (`src/audio/audioServer.ts`) that the supervisor runs as
-  its own child and replaces only when its own files change, on the sidecar's port plus an offset,
-  reached from the panel's dev server at `/api/audio/` (`vite.config.ts`). Group is the same, at
-  `/api/group/`: a hang or a crash in Group never takes the sidecar's streams down, and a save
-  elsewhere in the sidecar never restarts a room mid-wave.
-- **A package of its own falls outside the gate.** The messaging hub is one (`agent-feed/hub/`), and
-  `just check` has no leg for it, so its tests run in no gate. Inside `agent-feed/sidecar/`, Group
-  gets the sidecar leg's tests, typecheck, file caps, lint and format without new wiring.
-- **The boundary is lint, not a directory of packages:** Group imports nothing from the rest of the
-  sidecar, and nothing outside Group imports Effect (`.oxlintrc.json`); what Group needs from the
-  sidecar (sending through the hub, the session catalog, transcripts) it asks for over the sidecar's
-  HTTP routes, as the panel does.
-- **Effect's HTTP router lives inside Group's process only**; the sidecar's hand-written route
-  chain is untouched.
+1. A package of its own was proposed first and dropped, because the messaging hub's package
+   (`agent-feed/hub/`) has no leg in `just check`, so a package seemed to fall outside the gate.
+2. Then `agent-feed/sidecar/src/group/`, its own process inside the sidecar package, with its rules
+   as oxlint overrides. Building the lint showed the two fighting in four places: oxlint gives a
+   rule the options of the last override that matches, so a Group test file's three overrides
+   decided its rules by their order; a tsconfig covers a whole program, and t3code's
+   `exactOptionalPropertyTypes` gave 108 errors in 53 sidecar files; `@effect/tsgo` patches the
+   package's compiler; and `@effect/vitest` fails under the sidecar's `bun test`.
+3. So a package again, with the gap in (1) closed by wiring: a leg in the `justfile`, Group's paths
+   in fitness checks 5 to 9 and the pre-commit hook, and its own lint config run with `-c`.
 
-What it costs: Effect becomes a dependency of the sidecar package, kept to `src/group/` by lint
-rather than by a separate install.
+What still holds from (2):
+
+- **The isolation comes from the process.** The audio process is the precedent: an entry point the
+  supervisor runs as its own child, replaced only when its own files change, on a port of its own,
+  reached from the panel's dev server at `/api/audio/`. Group is the same at `/api/group/`, from
+  `agent-feed/group/src/GroupMain.ts`: a hang or a crash in Group never takes the sidecar's streams
+  down, and a save elsewhere never restarts a room mid-wave. The supervisor runs a child from
+  another package already (the speech process, `agent-feed/speech/`).
+- **Group imports nothing from the rest of the repository**, and the sidecar imports neither Group
+  nor Effect, both refused by lint; what Group needs from the sidecar (sending through the hub, the
+  session catalog, transcripts) it asks for over the sidecar's HTTP routes, as the panel does.
+- **Effect's HTTP router lives inside Group's process only**; the sidecar's route chain is
+  untouched.
+
+What it costs: the wiring above, and lint rules copied from the sidecar's config rather than
+inherited, so a lesson added there reaches Group only when it is copied. Tests run on `bun test`
+through a helper adapted from OpenCode's (`src/testing/effectTest.ts`), the same runner and runtime
+as the sidecar's. Built that day: the package, one health endpoint, its OpenAPI document and four
+tests; the supervisor does not start it and the panel does not route to it yet.
 
 ## Libraries and runtimes considered
 
@@ -558,10 +571,9 @@ rather than by a separate install.
   t3code runs it. Run read-only at 6.40.0 on 2026-10-25 without configuration, it reported 28
   unused files and 178 unused exports in the sidecar, and 5 files and 76 exports in the panel, but
   `src/server.ts` and the other entry points were among the "unused" files, so most of that is
-  missing configuration, not findings. For Group it would be a config whose project is
-  `src/group/**` and whose entries are the `*Main.ts` files and tests, reporting files, exports and
-  types. With nothing under `src/group/` it could not be shown failing, so it lands with the first
-  module and a probe that fails it. Running it over the rest of the tree is a separate decision,
+  missing configuration, not findings. For Group it would be a config in its package whose entries
+  are the `*Main.ts` files and tests, reporting files, exports and types. It lands with Group's first
+  real module and a probe that fails it. Running it over the rest of the tree is a separate decision,
   with its own backlog to clear.
 
 ## Open decisions
@@ -668,3 +680,8 @@ rather than by a separate install.
   through Effect's services except in a `*Main.ts` entry point and tests, so a file's dependencies
   show in its type, and a Node built-in is imported as a `Node`-named namespace, after t3code. knip
   was looked at and waits for Group's first module ("Libraries and runtimes considered").
+- 2026-10-25: Group is its own package, `agent-feed/group/` (ADR-0155), after its rules were found
+  fighting the sidecar's in four places; "Where Group lives" keeps the three homes in order. The
+  skeleton is built: one health endpoint, the OpenAPI document, tests on `bun test`, its own
+  compiler settings and lint, and a gate leg. Not yet started by the supervisor or routed by the
+  panel.

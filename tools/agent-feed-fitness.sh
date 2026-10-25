@@ -71,13 +71,13 @@ if [ -n "$bad_tags" ]; then
     exit 1
 fi
 
-# 5. No file in the two live TypeScript trees runs past 500 lines. Not a style rule: a file that
+# 5. No file in the live TypeScript trees (the panel, the sidecar, Group) runs past 500 lines. Not a style rule: a file that
 #    long has stopped being one idea, and the reader who needs one of the ideas in it pays for
 #    all of them. The cap is what makes a growing file split at the moment it stops being about
 #    one thing, rather than at the moment somebody has an afternoon to spend on it. Both trees
 #    were brought under it file by file; this is what keeps them there.
 oversize="$(
-    find packages/AgentPanel/Web/src agent-feed/sidecar/src \
+    find packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/group/src \
         \( -name '*.ts' -o -name '*.tsx' \) -print0 \
         | xargs -0 wc -l \
         | awk '$2 != "total" && $1 > 500 { print "  " $1 " " $2 }'
@@ -88,7 +88,7 @@ if [ -n "$oversize" ]; then
     exit 1
 fi
 
-# 6. No relative import inside the two live TypeScript trees. `@/` is the project's own src and
+# 6. No relative import inside the live TypeScript trees. `@/` is the project's own src and
 #    `@repo/` is the repository; both say where a module lives, while `../../..` says how far away
 #    the reader happens to be sitting. The difference is not style, it is what a file move costs: a
 #    relative import breaks when EITHER end moves, so clustering one directory rewrote every file
@@ -109,7 +109,8 @@ relative_imports="$(
     git grep -nE \
         '^[[:space:]]*(import|export)[^"'"'"']*from[[:space:]]*["'"'"']\.|^[[:space:]]*import[[:space:]]*["'"'"']\.|(import|vi\.mock|mock\.module|require)\([[:space:]]*["'"'"']\.' \
         -- 'packages/AgentPanel/Web/src/*.ts' 'packages/AgentPanel/Web/src/*.tsx' \
-           'agent-feed/sidecar/src/*.ts' 'agent-feed/sidecar/src/*.tsx' || true
+           'agent-feed/sidecar/src/*.ts' 'agent-feed/sidecar/src/*.tsx' \
+           'agent-feed/group/src/*.ts' || true
 )"
 if [ -n "$relative_imports" ]; then
     echo "agent-feed-fitness: these are relative imports; write @/ or @repo/ instead:" >&2
@@ -117,7 +118,7 @@ if [ -n "$relative_imports" ]; then
     exit 1
 fi
 
-# 7. No directory in the two live TypeScript trees holds more than twelve source files. The other
+# 7. No directory in the live TypeScript trees holds more than twelve source files. The other
 #    half of check 5, and the failure check 5 produces on its own: bring every file under 500 lines
 #    and you get directories of fifty files that are each one idea, where a reader still cannot see
 #    where one thing ends and the next begins. A flat list of fifty hides exactly what a
@@ -144,7 +145,7 @@ fi
 #    will append it to an existing file instead" -- keeps both caps green while hiding a new idea
 #    inside a file named for a different one, which is the failure they exist to prevent.
 oversized_dirs="$(
-    find packages/AgentPanel/Web/src agent-feed/sidecar/src -type d -print0 \
+    find packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/group/src -type d -print0 \
         | while IFS= read -r -d '' dir; do
             count="$(
                 find "$dir" -maxdepth 1 -type f \( -name '*.ts' -o -name '*.tsx' \) \
@@ -167,10 +168,11 @@ if [ -n "$oversized_dirs" ]; then
     exit 1
 fi
 
-# 8. The lint rules in `.oxlintrc.json`, over both live trees and the wire they share. Here rather
-#    than in a leg of its own because this gate runs on every `just check`, whatever the diff
-#    touched, and a lint finding is the same kind of fact about the tree as checks 5 to 7. oxlint is
-#    the panel's dev dependency, so the panel's dependencies are brought up to date first.
+# 8. The lint rules in `.oxlintrc.json`, over the panel, the sidecar and their wire, then Group's
+#    own (below). Here rather than in a leg of its own because this gate runs on every `just check`,
+#    whatever the diff touched, and a lint finding is the same kind of fact about the tree as checks
+#    5 to 7. oxlint is the panel's dev dependency, so the panel's dependencies are brought up to
+#    date first.
 node tools/build-system/ensure-js-dependencies.mjs agent-panel packages/AgentPanel/Web .build/js-dependencies
 # oxlint looks for tsgolint, the type checker behind its type-aware rules, beside the directory it
 # runs in, and this runs from the repository root.
@@ -189,17 +191,26 @@ if grep -rnE '\bReact\.use(Layout|Insertion)?Effect\b' packages/AgentPanel/Web/s
     --include='*.ts' --include='*.tsx' | grep -vE '\.test\.tsx?:|/src/hooks/'; then
     fail "an effect reached through the React namespace; ADR-0146 bans them outside src/hooks"
 fi
-# Group's Effect rules (`tools/ast-grep/group/`), the part of its standards that oxlint's import
-# rules cannot see. The rules' own tests run on every gate, so each is shown catching its invalid
-# cases before it is trusted to find nothing; the scan runs once Group has code to scan. ast-grep
-# is the panel's dev dependency, beside oxlint, so the install above covers it.
-AST_GREP="$ROOT/packages/AgentPanel/Web/node_modules/.bin/ast-grep"
-if ! "$AST_GREP" test -c tools/ast-grep/group/sgconfig.yml >/dev/null; then
-    "$AST_GREP" test -c tools/ast-grep/group/sgconfig.yml >&2 || true
-    fail "Group's ast-grep rules failed their own tests (tools/ast-grep/group/)"
+# Group is a package with its own lint (ADR-0155): its `.oxlintrc.json` is run on its sources alone,
+# so the config above never reaches them and nothing depends on the order of overrides. Its
+# type-aware rules read Group's tsconfig and Effect's types, so its dependencies come first.
+node tools/build-system/ensure-js-dependencies.mjs agent-feed-group agent-feed/group .build/js-dependencies
+if ! OXLINT_TSGOLINT_PATH="$ROOT/packages/AgentPanel/Web/node_modules/.bin/tsgolint" \
+    packages/AgentPanel/Web/node_modules/.bin/oxlint -c agent-feed/group/.oxlintrc.json \
+    --report-unused-disable-directives-severity=error agent-feed/group/src; then
+    fail "Group's lint failed (rules and the reason for each are in agent-feed/group/.oxlintrc.json)"
 fi
-if [ -d agent-feed/sidecar/src/group ] && ! "$AST_GREP" scan -c tools/ast-grep/group/sgconfig.yml agent-feed/sidecar/src/group; then
-    fail "Group's code broke an ast-grep rule (tools/ast-grep/group/README.md says where each comes from)"
+# Group's Effect rules (`agent-feed/group/ast-grep/`), the part of its standards that oxlint's
+# import rules cannot see. The rules' own tests run on every gate, so each is shown catching its
+# invalid cases before it is trusted to find nothing. ast-grep is the panel's dev dependency, beside
+# oxlint, so the install above covers it.
+AST_GREP="$ROOT/packages/AgentPanel/Web/node_modules/.bin/ast-grep"
+if ! "$AST_GREP" test -c agent-feed/group/ast-grep/sgconfig.yml >/dev/null; then
+    "$AST_GREP" test -c agent-feed/group/ast-grep/sgconfig.yml >&2 || true
+    fail "Group's ast-grep rules failed their own tests (agent-feed/group/ast-grep/)"
+fi
+if ! "$AST_GREP" scan -c agent-feed/group/ast-grep/sgconfig.yml agent-feed/group/src; then
+    fail "Group's code broke an ast-grep rule (agent-feed/group/ast-grep/README.md says where each comes from)"
 fi
 
 # 9. Every file in those trees is as oxfmt would write it (`.oxfmtrc.json`). Checked rather than

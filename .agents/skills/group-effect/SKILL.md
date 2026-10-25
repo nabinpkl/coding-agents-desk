@@ -5,7 +5,8 @@ description: Use when writing or reviewing any Group code (the group chat tab's 
 
 # Effect in Group
 
-Group is built on Effect v4 as a pilot for the rest of the sidecar (`docs/plans/group-chat.md`,
+Group is built on Effect v4 as a pilot for the rest of the sidecar, in a package of its own,
+`agent-feed/group/`, with its own compiler settings, lint and tests (ADR-0155; `docs/plans/group-chat.md`,
 "How the kernel is built"). This skill is the standard its code is held to. Where these rules and
 code elsewhere in this repository disagree, these rules win: the sidecar and the panel grew before
 Group and are read for what they learned (`docs/agents/group.md`), never as a pattern to copy. A
@@ -25,6 +26,7 @@ Effect code, check the API against the source:
   agents: `01_effect` (services, errors, resources, running), `03_stream`, `08_observability`,
   `09_testing`, `51_http-server`, `60_child-process`.
 - An answer is backed by a file in that tree, or by the Group code already written to this skill.
+  Group's own `node_modules/effect/src` holds the source of the exact version it runs.
 
 Bring the clone up to date with `git -C .reference/effect pull`, and check out the tag Group pins
 (`git -C .reference/effect checkout effect@<version>`) when the latest has moved past it.
@@ -64,7 +66,7 @@ list more. Each question has its own place to look:
 | --- | --- |
 | which modules a file uses | its imports |
 | which services it needs | the requirements of its `make` and `layer`: `Layer<Room, never, Hub \| FileSystem>`, checked by the compiler |
-| which code may import which | `.oxlintrc.json`, on every gate |
+| which code may import which | `agent-feed/group/.oxlintrc.json`, on every gate |
 | where a function is called | a search for `Module.fn(`, which a namespace makes exact |
 
 The second row holds only while every dependency comes from the environment, so files and
@@ -137,23 +139,31 @@ From t3code's rules, which Group adopts whole:
 
 ## Tests
 
-- Effect tests use `@effect/vitest`'s `it.effect` on a `TestClock` (time moves only with
-  `TestClock.adjust`); `it.live` only for real processes, sockets and files. A test never waits for
-  a length of time.
+- Tests run on `bun test`, the runtime Group runs on, through `@/testing/effectTest`, adapted from
+  OpenCode's helper (ADR-0155): `it.effect` runs on a `TestClock`, so time moves only with
+  `TestClock.adjust`; `it.live` only for real processes, sockets and files; `testEffect(layer)`
+  gives both with stand-ins provided. A test that reaches past loopback fails. A test never waits
+  for a length of time. Not `@effect/vitest`: it needs vitest's runner and fails under `bun test`.
+- A handler is tested in memory through `HttpApiTest.groups(api, [...])`, and the served routes on
+  a real Bun server through `BunHttpServer.layerTest`, which listens on an ephemeral port and
+  provides an `HttpClient` pointed at it.
 - Test layers stand in for what is outside Group (the hub, a harness); the logic under test is
   never mocked.
 - Each row of the design doc's failure table is a test, written before the code that passes it.
 
 ## What the gate enforces
 
-Part of this skill is checked on every `just check` (check 8 of `tools/agent-feed-fitness.sh`), so
-a review need not catch it:
+Part of this skill is checked on every `just check`, so a review need not catch it:
 
-- **oxlint** (`.oxlintrc.json`, the last override): Group's code imports nothing from the rest of
-  the sidecar (`@/**` except `@/group/**`), no named imports from the `effect` root, no
-  `node:timers`; and outside `src/group/`, nothing in the sidecar imports `effect` or `@effect/*`.
-- **ast-grep** (`tools/ast-grep/group/`): no `Effect.run*` or `ManagedRuntime.make` outside a
-  `*Main.ts` entry point or a test, no `node:fs`, `node:child_process` or `Bun.spawn` and its kin
+- **The compiler** (`agent-feed/group/tsconfig.json`, the `agent-feed-group-check` leg): t3code's
+  strict settings, `exactOptionalPropertyTypes` among them.
+- **oxlint** (`agent-feed/group/.oxlintrc.json`, run on its own by check 8 of
+  `tools/agent-feed-fitness.sh`): Group imports nothing from the rest of the repository, no named
+  imports from the `effect` root, no timers (`setTimeout`, `setInterval`, `Bun.sleep`,
+  `node:timers`) anywhere, no chokidar, and the type-aware rules the sidecar runs. The
+  repository's `.oxlintrc.json` keeps Effect and Group out of the sidecar.
+- **ast-grep** (`agent-feed/group/ast-grep/`): no `Effect.run*` or `ManagedRuntime.make` outside a
+  `*Main.ts` entry point, a test or the test helper, no `node:fs`, `node:child_process` or `Bun.spawn` and its kin
   outside them either, Node built-ins only as `Node`-named namespaces, no nested service yields,
   no aliased value imports, no `JSON.parse(...) as`, no `Effect.die` with a string, and OpenCode's
   five Effect simplifications.

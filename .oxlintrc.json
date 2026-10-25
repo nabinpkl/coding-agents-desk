@@ -221,10 +221,10 @@
       // just removed; the live sidecar wedged the same way on 2026-09-09 and 2026-10-02. The panel's
       // effect ban above does not apply here: the sidecar has no React.
       //
-      // Nor Effect, outside Group. Group is Effect's pilot (docs/plans/group-chat.md, "How the
-      // kernel is built"), and the rest of the sidecar moves only if the pilot holds; until then an
-      // Effect import elsewhere would start that move by accident. Restated in the two test
-      // overrides below, which replace this one for their files.
+      // Nor Effect, nor Group. Group is Effect's pilot, in a package of its own (ADR-0155), and the
+      // sidecar moves to Effect only if the pilot holds; until then an Effect import here would
+      // start that move by accident. The sidecar reaches Group over HTTP, like the panel. Restated
+      // in the two test overrides below, which replace this one for their files.
       "files": ["**/agent-feed/sidecar/src/**"],
       "rules": {
         "eslint/no-restricted-imports": [
@@ -239,7 +239,11 @@
             "patterns": [
               {
                 "group": ["effect", "effect/*", "@effect/*"],
-                "message": "Effect is used only under src/group/ for now (docs/agents/group.md)."
+                "message": "Effect is used only in Group's package, agent-feed/group/, for now (ADR-0155)."
+              },
+              {
+                "group": ["**/agent-feed/group/**", "@agentdesk/group", "@agentdesk/group/**"],
+                "message": "The sidecar reaches Group over HTTP at /api/group/, never by importing it (ADR-0155)."
               }
             ]
           }
@@ -293,7 +297,11 @@
             "patterns": [
               {
                 "group": ["effect", "effect/*", "@effect/*"],
-                "message": "Effect is used only under src/group/ for now (docs/agents/group.md)."
+                "message": "Effect is used only in Group's package, agent-feed/group/, for now (ADR-0155)."
+              },
+              {
+                "group": ["**/agent-feed/group/**", "@agentdesk/group", "@agentdesk/group/**"],
+                "message": "The sidecar reaches Group over HTTP at /api/group/, never by importing it (ADR-0155)."
               }
             ]
           }
@@ -318,51 +326,11 @@
             "patterns": [
               {
                 "group": ["effect", "effect/*", "@effect/*"],
-                "message": "Effect is used only under src/group/ for now (docs/agents/group.md)."
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      // Group: built fresh on Effect, to the group-effect and group-api-design skills, and never on
-      // the rest of the sidecar's code (docs/agents/group.md). Last, so it replaces every sidecar
-      // override above for Group's files, tests included.
-      //   - Nothing from the rest of the sidecar: what Group needs from it, it asks for over HTTP.
-      //     The existing code is behaviour to port as tests, not modules to import.
-      //   - Effect modules as namespaces from their subpaths (`import * as Effect from
-      //     "effect/Effect"`), never named imports from the package root.
-      //   - No timers from node: Effect's clock is how Group waits, and how its tests move time.
-      //   - chokidar stays banned, as in the rest of the sidecar.
-      "files": ["**/agent-feed/sidecar/src/group/**"],
-      "rules": {
-        "eslint/no-restricted-imports": [
-          "error",
-          {
-            "paths": [
-              {
-                "name": "effect",
-                "message": "Import each Effect module as a namespace from its subpath: import * as Effect from \"effect/Effect\" (group-effect skill)."
+                "message": "Effect is used only in Group's package, agent-feed/group/, for now (ADR-0155)."
               },
               {
-                "name": "chokidar",
-                "message": "Watch with watchTree (src/transcripts/catalog/watchTree.ts) or repositoryEvents, and never close the watch."
-              },
-              {
-                "name": "node:timers/promises",
-                "message": "Wait with Effect.sleep or a Schedule; tests move time with TestClock.adjust (group-effect skill)."
-              },
-              {
-                "name": "node:timers",
-                "message": "Wait with Effect.sleep or a Schedule; tests move time with TestClock.adjust (group-effect skill)."
-              }
-            ],
-            "patterns": [
-              {
-                // `**`, not `*`: oxlint 1.86 matched no `@/*` against `@/arena/arenaConfig`.
-                "group": ["@/**", "!@/group/**"],
-                "message": "Group never imports the rest of the sidecar; ask for what it needs over the sidecar's HTTP routes (docs/agents/group.md)."
+                "group": ["**/agent-feed/group/**", "@agentdesk/group", "@agentdesk/group/**"],
+                "message": "The sidecar reaches Group over HTTP at /api/group/, never by importing it (ADR-0155)."
               }
             ]
           }

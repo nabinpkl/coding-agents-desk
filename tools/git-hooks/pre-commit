@@ -4,7 +4,7 @@
 # source files, or a file oxfmt would rewrite.
 #
 # The same rules as checks 5, 6, 7 and 9 in `tools/agent-feed-fitness.sh`, moved to the moment they
-# are cheap to obey. The gate is the authority and this is not a second opinion: same two trees
+# are cheap to obey. The gate is the authority and this is not a second opinion: same three trees
 # (and the wire, for formatting, as check 9 reads it), same two extensions, same limits, same
 # counting. If they ever disagree, the gate is right and this is the bug.
 #
@@ -18,13 +18,14 @@
 # holding exactly what will land, and the hook runs against that. Reading the files on disk would
 # measure a peer's half-written edit instead.
 #
-# Only `.ts` and `.tsx`, only under the two `src` trees that are the current path. Everything else
+# Only `.ts` and `.tsx`, only under the three `src` trees that are the current path. Everything else
 # in this repository is Swift, Rust, generated, vendored, or dormant, and a line cap on any of them
 # would be a rule nobody agreed to.
 set -uo pipefail
 
 LIMIT=500
-TREES="packages/AgentPanel/Web/src agent-feed/sidecar/src"
+# Group's package is a live tree too (ADR-0155).
+TREES="packages/AgentPanel/Web/src agent-feed/sidecar/src agent-feed/group/src"
 
 staged="$(git diff --cached --name-only --diff-filter=ACMR -- $TREES | grep -E '\.tsx?$' || true)"
 # Formatting covers the wire as well, the trees `tools/format.sh` formats.

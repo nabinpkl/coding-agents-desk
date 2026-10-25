@@ -1,0 +1,30 @@
+{
+  // Group's own compiler settings (ADR-0155): t3code's strict set (`.reference/t3code/tsconfig.base.json`),
+  // with Bun's module settings in place of Node's. `exactOptionalPropertyTypes` is why this is not
+  // the sidecar's tsconfig: it gave 108 errors in that tree on 2026-10-25.
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "useDefineForClassFields": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["bun"],
+    // `@/` is this package's own src. Group imports nothing from the rest of the repository.
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

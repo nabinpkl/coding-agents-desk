@@ -165,6 +165,8 @@ xcode_client := "AGENTDESK_CLIENT_BUNDLE_ID='" + client_bundle_id + "' " + xcode
 # AgentDesk-owned source for transcript discovery, parsing, indexing, and feed
 # HTTP/SSE delivery.
 agent_feed_sidecar_dir := justfile_directory() + "/agent-feed/sidecar"
+# Group, the group chat tab's server process: its own package, the pilot for Effect (ADR-0155).
+agent_feed_group_dir := justfile_directory() + "/agent-feed/group"
 # AgentDesk-owned Vite source for the shared AgentPanel webview.
 agent_panel_web_dir := justfile_directory() + "/packages/AgentPanel/Web"
 # The env var that points the panel's webview at a dev server instead of its bundled build.
@@ -366,6 +368,35 @@ agent-feed-sidecar-check:
         echo "agent-feed-sidecar-check: removed cache or digest contract returned" >&2
         exit 1
     fi
+
+# Group's package (ADR-0155): its typecheck, under its own stricter tsconfig, then its tests on
+# `bun test`. Its lint runs in the fitness leg with the other trees'. Each step in a process group
+# of its own, reaped on the way out, for the reason given in `agent-feed-sidecar-check`.
+agent-feed-group-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT='{{justfile_directory()}}'
+    GROUP='{{agent_feed_group_dir}}'
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-feed-group "$GROUP" "$ROOT/.build/js-dependencies"
+    cd "$GROUP"
+    set -m
+    STEP_PID=''
+    reap_step() {
+        [ -n "$STEP_PID" ] || return 0
+        kill -0 -- "-$STEP_PID" 2>/dev/null || return 0
+        kill -TERM -- "-$STEP_PID" 2>/dev/null || true
+        sleep 2
+        kill -KILL -- "-$STEP_PID" 2>/dev/null || true
+    }
+    trap reap_step EXIT
+    trap 'exit 143' INT TERM HUP
+    step() {
+        "$@" &
+        STEP_PID=$!
+        wait "$STEP_PID"
+    }
+    step bun run typecheck
+    step bun run test
 
 # Canary for the harness artifacts background-task detection reads (ADR-0099): the
 # ~/.claude/sessions/<pid>.json registry, the <session>/tasks/<id>.output layout, and the
@@ -1479,7 +1510,7 @@ dom-mirror-e2e: ext-stamp
 # simulator suite, and `just check-all` runs the lot.
 # Every leg of the current-path gate, run whatever changed. `check` runs only the legs a diff
 # can affect; this is the sweep, and what `check-all` builds on.
-check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder tools-check
+check-legs: agent-feed-sidecar-check agent-feed-group-check agent-panel-web-check agent-feed-fitness terminal-web-check build-system-check grid-encoder tools-check
 
 # Only the legs the current diff can actually affect.
 #
@@ -1532,6 +1563,7 @@ check:
         [ -n "$path" ] || continue
         case "$path" in
             agent-feed/sidecar/*) add agent-feed-sidecar-check ;;
+            agent-feed/group/*) add agent-feed-group-check ;;
             # The wire is the contract both ends compile against, so it is both their problem.
             agent-feed/wire/*) add agent-feed-sidecar-check; add agent-panel-web-check ;;
             packages/AgentPanel/Web/*) add agent-panel-web-check ;;
@@ -1564,7 +1596,7 @@ check:
     if [ -n "$unclaimed" ]; then
         echo "check: no leg claims:$unclaimed" >&2
         echo "check: running every leg rather than guessing." >&2
-        legs="agent-feed-sidecar-check agent-panel-web-check terminal-web-check build-system-check grid-encoder tools-check"
+        legs="agent-feed-sidecar-check agent-feed-group-check agent-panel-web-check terminal-web-check build-system-check grid-encoder tools-check"
     fi
     # Always, because it is two seconds and it reads across the host Swift, the panel Swift and
     # the wire at once: its inputs are too spread to map honestly.

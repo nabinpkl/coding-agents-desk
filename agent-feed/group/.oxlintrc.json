@@ -1,0 +1,72 @@
+{
+  "$schema": "../../packages/AgentPanel/Web/node_modules/oxlint/configuration_schema.json",
+  // Group's own lint (ADR-0155), run by check 8 of tools/agent-feed-fitness.sh with `-c` on this
+  // file, so the repository's `.oxlintrc.json` never reaches Group's code and nothing here depends
+  // on the order of overrides. Rules the sidecar learned are copied in, not inherited: a lesson
+  // added there is not here until it is copied too. The React rules are left out. Every rule is an
+  // error and the package holds none, so a finding is always new.
+  "plugins": ["eslint", "typescript", "import"],
+  // Type-aware rules read this package's tsconfig.json.
+  "options": { "typeAware": true },
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "rules": {
+    // Copied from the repository's config, each for the reason given there.
+    "eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }
+    ],
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-deprecated": "error",
+    "eslint/eqeqeq": ["error", "always", { "null": "ignore" }],
+    "typescript/only-throw-error": ["error", { "allowThrowingUnknown": true }],
+    "typescript/prefer-promise-reject-errors": ["error", { "allowThrowingUnknown": true }],
+    "import/no-cycle": "error",
+    "eslint/preserve-caught-error": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": ["error", { "checksVoidReturn": { "attributes": false, "properties": false } }],
+    // The sidecar bans timers in its tests. Group bans them everywhere: time goes through Effect
+    // (`Effect.sleep`, `Schedule`, `Clock`), so a test's TestClock moves it and no test waits.
+    "eslint/no-restricted-globals": [
+      "error",
+      { "name": "setTimeout", "message": "Use Effect.sleep or a Schedule, so a TestClock controls the time." },
+      { "name": "setInterval", "message": "Use a Schedule, so a TestClock controls the time." }
+    ],
+    "eslint/no-restricted-properties": [
+      "error",
+      { "object": "Bun", "property": "sleep", "message": "Use Effect.sleep, so a TestClock controls the time." },
+      { "object": "globalThis", "property": "setTimeout", "message": "Use Effect.sleep or a Schedule." },
+      { "object": "globalThis", "property": "setInterval", "message": "Use a Schedule." }
+    ],
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "effect",
+            "message": "Import each Effect module as a namespace from its subpath (import * as Effect from \"effect/Effect\"): the root loads all of Effect (group-effect skill)."
+          },
+          {
+            "name": "chokidar",
+            "message": "A watch closed under Bun poisons the next one on that path (agent-feed/sidecar/AGENTS.md); watch through Effect's FileSystem and never close it."
+          },
+          { "name": "node:timers", "message": "Use Effect.sleep or a Schedule, so a TestClock controls the time." },
+          { "name": "node:timers/promises", "message": "Use Effect.sleep or a Schedule, so a TestClock controls the time." }
+        ],
+        "patterns": [
+          {
+            "group": ["@repo/**", "@agentdesk/**", "**/agent-feed/sidecar/**", "**/AgentPanel/**"],
+            "message": "Group imports nothing from the rest of the repository; it asks the sidecar over HTTP (docs/agents/group.md)."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -81,6 +81,9 @@ app. The panel picks its transport by whether a native message handler is presen
 
 - `packages/AgentPanel/` the panel, and the busiest directory in the repo.
 - `agent-feed/sidecar/` the TypeScript backend behind it.
+- `agent-feed/group/` Group, the group chat tab's server process, started 2026-10-25: its own
+  package on Effect, the pilot for the sidecar (ADR-0155). A health endpoint so far; nothing starts
+  it or routes to it yet.
 - `tools/grid-encoder/` the Swift capture and input helper the sidecar spawns.
 - `deskzoom/` the virtual display, absorbed 2026-09-05. Only `--display-only` and the launchd
   recipes matter here; its viewer and fake cursor are the original standalone tool.
@@ -219,6 +222,7 @@ and none of them should be extended without deciding which one you are in.
 | Reach a session that is locked or at the login window | noVNC on the Screen surface | nothing; the capture path structurally cannot | complementary, not competing |
 | Zoom the desktop view | `crop`, re-aiming the capture (ported from DeskZoom) | `css`, transforming the picture | both live behind a switch in `zoomMode.ts`, deliberately, so they can be compared on one desk |
 | Drive the desktop | sidecar HTTP plus the standalone helper (ADR-0109, ADR-0113) | the host's native lane | moved on purpose; the reasoning is at the top of `agent-feed/sidecar/src/http/windowRoutes.ts` |
+| Put several sessions on one prompt or one conversation | Group (`agent-feed/group/`, `docs/plans/group-chat.md`), being built | the Arena tab (`agent-feed/sidecar/src/arena/`) | the Arena is the older design; Group ports what it learned as tests, never its modules or structure, and new work on talking to several sessions goes to Group (2026-10-25) |
 | See a web page from the Mac | stream the screen | `chrome-extension` + `dom-bridge` DOM projection | the projection arc is dormant since July |
 | Serve the panel's code | live Vite origin (`panel=live`) | bundled webview (`panel=bundled`) | both supported on purpose; bundled is how it ships |
 | Speak to someone listening on the phone | the speech process (`agent-feed/speech/`) pushing what it makes to `public/experiments/local-test.html?push=1`, which mixes it with noise (`audio/speechPushExperiment.ts`) | Agent Radio: one AAC stream mixed in the audio process (`audio/audioStream.ts`, `public/listen.html`) | the first is still an experiment, but it is where the sidecar's speech goes (a turn finishing, a reply read aloud), and it takes over `/api/audio/speak` while it is checked in, so Agent Radio plays only noise (2026-10-21), and `/api/audio/listeners` with it (2026-10-24) |

@@ -1,4 +1,4 @@
-# ast-grep rules for Group's code (agent-feed/sidecar/src/group/), run by check 8 of
+# ast-grep rules for Group's code (agent-feed/group/src/), run by check 8 of
 # tools/agent-feed-fitness.sh. See README.md here for where each rule comes from.
 ruleDirs:
   - rules

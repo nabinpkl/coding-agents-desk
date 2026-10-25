@@ -7,7 +7,7 @@ valid:
   - |
     import * as Effect from "effect/Effect"
   - |
-    import { describe } from "@effect/vitest"
+    import { expect } from "bun:test"
 invalid:
   - |
     import { join } from "node:path"
