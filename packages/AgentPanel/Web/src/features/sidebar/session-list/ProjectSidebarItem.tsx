@@ -19,8 +19,8 @@ import {
 import { ScratchProjects, scratchItemProject } from "@/features/sidebar/session-list/ScratchProjects";
 import { SecurityReviewFold, splitSecurityReviews } from "@/features/sidebar/session-list/SecurityReviewSessions";
 import { ActivityDot, SessionMeta } from "@/features/sidebar/session-list/SessionMeta";
-import type { BotSessionFace } from "@/features/bots/avatar/botSessionFaces";
-import { SessionAvatar } from "@/features/bots/SessionAvatar";
+import type { SessionFaces } from "@/features/bots/avatar/botSessionFaces";
+import { BotSessionMark } from "@/features/bots/avatar/BotSessionMark";
 import { SourceBadge } from "@/features/sidebar/SourceBadge";
 import { InlineStatus, SidebarError, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 
@@ -40,12 +40,6 @@ export interface SessionCanvasMove {
 const SESSION_BATCH_SIZE = 10;
 
 /**
- * The face each Bot's session wears, by `source:sessionId`. Given only by the Canvas tab's list,
- * where a row that belongs to a Bot should read as the session on that Bot's card.
- */
-export type SessionFaces = ReadonlyMap<string, BotSessionFace>;
-
-/**
  * What opens a row: a Bot's session wears its face, which rings green while it is live, and any
  * other session keeps the dot. In a list that shows faces the dot sits in a face-wide slot, so
  * every title starts at one edge.
@@ -60,19 +54,7 @@ function SessionMark({ session, faces }: { session: SessionSummary; faces: Sessi
       </span>
     );
   }
-  return (
-    // The Bot's hue and the session's step are set here rather than on the row, so they reach the
-    // face and not the meta line, whose muted ink would otherwise take the card's ladder.
-    <span className="shrink-0" style={face.style}>
-      <SessionAvatar
-        title={session.title || session.sessionId}
-        activity={session.activity}
-        shaded={face.style !== undefined}
-        rank={face.rank}
-        shut={!face.open}
-      />
-    </span>
-  );
+  return <BotSessionMark title={session.title || session.sessionId} activity={session.activity} face={face} />;
 }
 
 export function ProjectSidebarItem({

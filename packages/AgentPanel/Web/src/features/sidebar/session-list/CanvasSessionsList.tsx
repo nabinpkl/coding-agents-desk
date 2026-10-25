@@ -16,10 +16,10 @@ import {
   ProjectSessionList,
   SessionRow,
   type SessionCanvasMove,
-  type SessionFaces,
 } from "@/features/sidebar/session-list/ProjectSidebarItem";
 import { SidebarError, SidebarReconnecting, SidebarStatus } from "@/features/sidebar/SidebarStatusRows";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
+import type { SessionFaces } from "@/features/bots/avatar/botSessionFaces";
 
 /** What the project list needs whichever list it sits in; the rest is this view's. */
 type ProjectListProps = Omit<

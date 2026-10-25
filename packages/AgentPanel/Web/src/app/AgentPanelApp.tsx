@@ -289,6 +289,7 @@ export function App({ feed, host, machines, fill = false, fatherExternal = false
             onClose: thread.closeSessionModal,
             contextFor: (botId) => shellMachines.contextFor(sessionViewContext, botId),
             canvasMove: { held: roster.heldSessionKeys, onMove: roster.moveSessionToCanvas },
+            faces: sidebar.canvasSessions.faces,
           }}
         />
         {chrome.usesModalSidebar ? (

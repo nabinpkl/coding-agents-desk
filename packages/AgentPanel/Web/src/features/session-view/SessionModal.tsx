@@ -11,7 +11,9 @@
 import { LayoutDashboard, LoaderCircle, X } from "lucide-react";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { Bin, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { BotSessionMark } from "@/features/bots/avatar/BotSessionMark";
+import type { BotSessionFace } from "@/features/bots/avatar/botSessionFaces";
 import { SessionView } from "@/features/session-view/SessionView";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 import { FileDropOverlay, useFileDropTarget } from "@/features/session-view/fileDropTarget";
@@ -33,6 +35,7 @@ export function SessionModal({
   onClose,
   onMoveToCanvas,
   botId,
+  mark,
   listed = true,
 }: {
   context: SessionViewContext;
@@ -49,6 +52,12 @@ export function SessionModal({
    * lands as a card beside this session's, the same as a fork from the card itself.
    */
   botId?: string;
+  /**
+   * The face this session wears as a Bot's, with its activity as of now: `session` is the record
+   * the modal opened with, and its live ring would stop following the session. Absent for a
+   * session no Bot holds, whose header opens with its title.
+   */
+  mark?: { face: BotSessionFace; activity: Bin };
   /** False for a session the catalog has not listed yet; see `SessionView`'s prop of the name. */
   listed?: boolean;
 }) {
@@ -118,6 +127,15 @@ export function SessionModal({
         className="relative flex h-[min(100%,56rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-card text-foreground shadow-2xl"
       >
         <header className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border py-1 pr-1 pl-4">
+          {mark ? (
+            // Eyes open whatever its card says: the session is open, right here.
+            <BotSessionMark
+              title={session.title || session.sessionId}
+              activity={mark.activity}
+              face={{ ...mark.face, open: true }}
+              className="mr-2"
+            />
+          ) : null}
           <div className="min-w-0 flex-1">
             <h2 id={titleId} className="truncate text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold">
               {session.title || session.sessionId}

@@ -29,6 +29,7 @@ import { StartedSessionModal } from "@/features/session-view/StartedSessionModal
 import type { useNewSessionCommands } from "@/app/shell-state/useNewSessionCommands";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 import { sessionKey } from "@/features/bots/cards/botCanvasCards";
+import { botSessionMarkNow, type SessionFaces } from "@/features/bots/avatar/botSessionFaces";
 
 export function AppDialogs({
   attachBotSessions,
@@ -107,6 +108,8 @@ export function AppDialogs({
     onClose: () => void;
     /** Moves the session onto its directory's Bot. Not offered on a session a Bot already holds. */
     canvasMove: { held: ReadonlySet<string>; onMove: (session: SessionSummary) => Promise<void> };
+    /** The face each Bot's session wears, the same map the Canvas Sessions view draws from. */
+    faces: SessionFaces;
   };
 }) {
   // The anchor a rename must leave alone, when exactly one Bot holds the session with one stored.
@@ -118,6 +121,11 @@ export function AppDialogs({
     if (holders.length !== 1) return undefined;
     return holders[0]!.sessionAnchors![sessionKey(renamingSession)]!;
   }, [bots, renamingSession]);
+  // A Bot's session wears its face in the modal's header, ringed by its activity as the roster has
+  // it now rather than as it was when the modal opened.
+  const modalMark = sessionModal.thread
+    ? botSessionMarkNow(sessionModal.faces, bots, sessionKey(sessionModal.thread.session))
+    : undefined;
   // The machine the Sessions view reads, which is the shell's: a new session starts where it will
   // be listed.
   const shellFeed = sessionModal.context.feed;
@@ -232,6 +240,7 @@ export function AppDialogs({
             project={sessionModal.thread.project}
             session={sessionModal.thread.session}
             onClose={sessionModal.onClose}
+            {...(modalMark ? { mark: modalMark } : {})}
             {...(sessionModal.canvasMove.held.has(sessionKey(sessionModal.thread.session))
               ? {}
               : { onMoveToCanvas: sessionModal.canvasMove.onMove })}

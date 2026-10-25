@@ -2,7 +2,7 @@
 // it is on the canvas and in the roster.
 
 import type { CSSProperties } from "react";
-import type { BotView } from "@agentdesk/agent-feed-wire";
+import type { Bin, BotView } from "@agentdesk/agent-feed-wire";
 import { attachedSessionKey } from "@/features/bots/botRosterOrder";
 import {
   botCanvasHues,
@@ -46,6 +46,9 @@ export interface BotSessionFace {
   open: boolean;
 }
 
+/** What the Canvas Sessions view's rows and the session modal's header draw a Bot's session with. */
+export type SessionFaces = ReadonlyMap<string, BotSessionFace>;
+
 /**
  * Every Bot session's face, by `source:sessionId`.
  *
@@ -55,7 +58,7 @@ export interface BotSessionFace {
 export function botSessionFaces(
   bots: readonly BotView[],
   canvas: CanvasMembership & { openSessionKeys: ReadonlySet<string> },
-): ReadonlyMap<string, BotSessionFace> {
+): SessionFaces {
   const hues = botCanvasHues(bots);
   const ranks = botCanvasRanks(bots);
   const faces = new Map<string, BotSessionFace>();
@@ -75,4 +78,25 @@ export function botSessionFaces(
     }
   }
   return faces;
+}
+
+/**
+ * A Bot's session's face with its activity as the roster has it now, or undefined for a session no
+ * Bot holds.
+ *
+ * For a surface that holds an older record of the session, as the session modal does from the
+ * moment it opened: that record's activity would leave the live ring where it was.
+ */
+export function botSessionMarkNow(
+  faces: SessionFaces,
+  bots: readonly BotView[],
+  sessionKey: string,
+): { face: BotSessionFace; activity: Bin } | undefined {
+  const face = faces.get(sessionKey);
+  if (!face) return undefined;
+  for (const bot of bots) {
+    const session = bot.sessions.find((each) => attachedSessionKey(each) === sessionKey);
+    if (session) return { face, activity: session.activity };
+  }
+  return undefined;
 }

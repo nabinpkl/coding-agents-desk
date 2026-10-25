@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BotView } from "@agentdesk/agent-feed-wire";
-import { botSessionFaces, sessionOffCanvas } from "@/features/bots/avatar/botSessionFaces";
+import { botSessionFaces, botSessionMarkNow, sessionOffCanvas } from "@/features/bots/avatar/botSessionFaces";
 import {
   botCanvasHues,
   botCanvasRanks,
@@ -85,5 +85,25 @@ describe("sessionOffCanvas", () => {
     expect(sessionOffCanvas("alice", "claude:a-1", { ...NONE, detachedBotIds: new Set(["alice"]) })).toBe(true);
     expect(sessionOffCanvas("alice", "claude:a-1", { ...NONE, machineHiddenBotIds: new Set(["alice"]) })).toBe(true);
     expect(sessionOffCanvas("alice", "claude:a-1", { ...NONE, detachedBotIds: new Set(["erica"]) })).toBe(false);
+  });
+});
+
+describe("botSessionMarkNow", () => {
+  const faces = botSessionFaces([ALICE], { ...NONE, openSessionKeys: new Set() });
+
+  it("pairs a Bot session's face with its activity as the roster has it now", () => {
+    const resting = {
+      ...ALICE,
+      sessions: ALICE.sessions.map((each) => ({ ...each, activity: "ready" })),
+    } as BotView;
+    expect(botSessionMarkNow(faces, [ALICE], "claude:a-1")).toEqual({
+      face: faces.get("claude:a-1"),
+      activity: "live",
+    });
+    expect(botSessionMarkNow(faces, [resting], "claude:a-1")!.activity).toBe("ready");
+  });
+
+  it("has nothing for a session no Bot holds", () => {
+    expect(botSessionMarkNow(faces, [ALICE], "claude:elsewhere")).toBeUndefined();
   });
 });

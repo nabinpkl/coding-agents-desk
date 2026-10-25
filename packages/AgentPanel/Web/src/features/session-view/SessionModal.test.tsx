@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CSSProperties } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { SessionModal } from "@/features/session-view/SessionModal";
+import { setBotFaces } from "@/features/bots/avatar/botFacesSwitch";
 import type { SessionViewContext } from "@/features/session-view/sessionTerminalTypes";
 
 // The modal's own chrome is the subject; the transcript inside it has suites of its own.
@@ -75,5 +77,34 @@ describe("SessionModal for a Bot's session", () => {
     (viewProps.current!.onForkFromMessage as (request: object) => void)({ index: 4 });
 
     expect(onForkFromMessage).toHaveBeenCalledWith({ index: 4, botId: "bot-1" });
+  });
+});
+
+describe("SessionModal's header face", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setBotFaces(true);
+  });
+
+  it("opens with a Bot's session's face, ringed while live and with its eyes open", () => {
+    const face = { style: { "--bot-hue": "200" } as CSSProperties, rank: 0, open: false };
+    render(
+      <SessionModal
+        context={context}
+        project={project}
+        session={session}
+        onClose={() => {}}
+        mark={{ face, activity: "live" }}
+      />,
+    );
+    const header = screen.getByRole("dialog").querySelector("header")!;
+    const drawn = header.querySelector(".bot-face")!;
+    expect(drawn.getAttribute("class")).toContain("ring-green-500");
+    expect(drawn.querySelector(".bot-face-eyes--shut")).toBeNull();
+  });
+
+  it("opens with the title alone for a session no Bot holds", () => {
+    render(<SessionModal context={context} project={project} session={session} onClose={() => {}} />);
+    expect(screen.getByRole("dialog").querySelector("header .bot-face")).toBeNull();
   });
 });
