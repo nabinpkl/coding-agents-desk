@@ -165,9 +165,18 @@ Six invariants. Everything in the room is built on them; nothing above may weake
      cannot be killed: its session is aborted (`OpencodeAgentBackend.abort`), then checked idle.
    - A terminals lane's pane is interrupted, then its session ended.
 4. **Crash-only, and turns are never retried.** The log and the leases are on disk. A starting
-   sidecar's only recovery is to kill what has expired and mark it failed, before it admits anything.
-   A turn is never sent again on its own: delivery to an agent is at most once. A traditional chat
-   retries until delivered; a paid turn must not.
+   Group process's only recovery is to kill what has expired and mark it failed, and to adopt
+   what is still running under a live lease, before it admits anything. A turn is never sent
+   again on its own: delivery to an agent is at most once. A traditional chat retries until
+   delivered; a paid turn must not.
+   - **A lane belongs to its lease, not to the process that started it.** Group restarts often in
+     the dev loop, and a graceful exit runs every scope's cleanup, so a lane tied to a scope dies
+     with each restart (U9 measured it). A lane is started, then released from its scope
+     (`unref` on Effect's handle), and only an explicit stop, an expired lease or a tripped
+     breaker kills it. So a restart, graceful or a crash, is the same event to a lane: the next
+     process finds it by its lease and carries on watching.
+   - **A lane writes to files, never to a pipe into Group.** Its transcript and its output go to
+     disk, so the process that reads them can change under it.
 5. **Breakers.** Two failures in a row open a lane's breaker, and it sits out the rest of the wave.
    Three failures in a wave stop the wave. Only you close a breaker again; no timer half-opens it.
 6. **One kill switch.** Stop room is written to disk, checked before every admission, and kills every
@@ -215,6 +224,9 @@ Each row is a test to write before the code that passes it.
 | On macOS, only zombies are left in the group | `EPERM` from `kill(-pgid, 0)` is read as zombies, not as gone | Group whose members are zombies (Effect #9819); the spike saw it live, a second after SIGTERM, with Claude exited but not yet reaped |
 | A tool's command runs in a process group other than the harness's | The census names it; SIGKILL goes to its group too | A Bash command that starts background work, the harness SIGKILLed (the spike: four processes survived a kill of Claude's group alone) |
 | The census or a span carries a secret on a command line | Command lines are never stored or exported as text; only pid, group and the program's name | An MCP server started with an API key in its argv (the spike's census printed one) |
+| Group exits gracefully mid-turn (a save in its files, the supervisor's SIGTERM) | The lane is not in any scope's cleanup; it runs on and the next process adopts it by its lease | A lane mid-turn, Group sent SIGTERM and restarted (U9: an ordinary scoped child died at tick 7 of 30; a released one finished) |
+| Group crashes mid-turn | Same as a graceful exit | Group SIGKILLed mid-turn (U9: the lane finished) |
+| Effect stops skipping released children on scope release | The restart test fails before an upgrade ships | The U9 graceful-restart test, kept in the suite: skipping released children on release is in Effect 4.0.6's code, not its documentation |
 
 ## Supervision
 
@@ -436,7 +448,24 @@ spike started was stopped afterwards.
   So the August result does not hold for Bun 1.3.13 on a stream of this shape, and principle 5
   holds on Effect by construction. Not covered: the browser's own HTTP/2 hop into the dev server,
   and the tile path's stream shape.
-- **Still open:** U4 (opencode), U9 (a Group restart and its lanes).
+- **U9, a Group restart and its lanes: answered.** A stand-in for Group on Effect 4.0.6 started a
+  lane (a script ticking 30 times, 200 ms apart), wrote its lease (pid and start time), and was
+  stopped after 1.5 seconds; a second process then read the lease and adopted the lane if it was
+  the same process.
+
+  | Case | The lane |
+  | --- | --- |
+  | An ordinary scoped child; Group sent SIGTERM | Killed at tick 7: the graceful exit ran the scope's cleanup, and the turn was lost |
+  | Released with `unref` after it started; SIGTERM | Ran on, was adopted (same pid, same start time), and finished its turn |
+  | Released, and writing to a pipe Group held; SIGTERM | Also finished. It was `sh`; a real `claude` may treat a closed pipe differently, so this proves nothing for it |
+  | An ordinary scoped child; Group SIGKILLed | Finished: no cleanup runs on SIGKILL |
+
+  So graceful and crash restarts differed only for the scoped child, which is the design to avoid.
+  Effect's spawner skips a released child on scope release (4.0.6, in its code, not its
+  documentation, which only says the parent may exit without waiting). An adopted lane is not the
+  new process's child, so it cannot be waited on: a real one is watched through its transcript.
+  The kernel's invariant 4 and the failure table now say so.
+- **Still open:** U4 (opencode).
 
 ## How the kernel is built: three options
 
@@ -609,3 +638,7 @@ avoid.
   are routine in the dev loop. U8 answered: Bun 1.3.13 reports a reader leaving within 1 ms,
   directly and through the panel's proxy, and Effect then ends only the request's stream while
   room work runs on. U9 opened: what a restart of Group's own process does to its lanes.
+- 2026-10-25: U9 answered: a scoped lane dies with every graceful restart, a released one is
+  adopted by its lease and finishes. Invariant 4 now says a lane belongs to its lease and writes to
+  files, and the failure table gained the graceful restart, the crash, and Effect changing the
+  behaviour this rests on. Only U4 is open.
