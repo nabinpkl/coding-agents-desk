@@ -365,5 +365,17 @@ export type {
 export { SENT_MESSAGE_KIND_HELP, SENT_MESSAGE_KINDS } from "./messaging.ts";
 export type { PushKeyResponse, PushTestResponse } from "./webPush.ts";
 export { PUSH_KEY_ROUTE, PUSH_SUBSCRIPTIONS_ROUTE, PUSH_TEST_ROUTE } from "./webPush.ts";
-export type { AudioListenersResponse, AudioSpeakRequest, AudioSpeakResponse } from "./audioChannel.ts";
-export { AUDIO_LISTENERS_ROUTE, AUDIO_SPEAK_MAX_CHARS, AUDIO_SPEAK_ROUTE, AUDIO_STREAM_ROUTE } from "./audioChannel.ts";
+export type {
+  AudioListenersResponse,
+  AudioNoiseRequest,
+  AudioSpeakRequest,
+  AudioSpeakResponse,
+} from "./audioChannel.ts";
+export {
+  AUDIO_LISTENERS_ROUTE,
+  AUDIO_NOISE_LEVEL_MAX,
+  AUDIO_NOISE_ROUTE,
+  AUDIO_SPEAK_MAX_CHARS,
+  AUDIO_SPEAK_ROUTE,
+  AUDIO_STREAM_ROUTE,
+} from "./audioChannel.ts";

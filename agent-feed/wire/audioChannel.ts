@@ -5,10 +5,25 @@
 // start on a locked screen. So the sidecar keeps one stream playing, silence between messages.
 
 /**
- * `GET /api/audio/stream`: AAC (ADTS), paced in real time, silent until an agent speaks, for as long
- * as the listener stays. Each connection is a listener; resuming is connecting again.
+ * `GET /api/audio/stream?listener=<id>&noise=<level>`: AAC (ADTS), paced in real time, a bed of white
+ * noise at `level` (0 is silence) with agents' messages over it, for as long as the listener stays.
+ *
+ * `listener` names the device, so its noise level can change without reconnecting and two
+ * connections from one device (a phone probes a stream before playing it) count as one listener.
+ * Resuming is connecting again.
  */
 export const AUDIO_STREAM_ROUTE = "/api/audio/stream";
+
+/** Noise levels run from 0, silence, to this. */
+export const AUDIO_NOISE_LEVEL_MAX = 10;
+
+/**
+ * `POST /api/audio/noise`: set a listening device's noise level, heard once what the stream has
+ * already sent ahead has played. 404 when that device has no stream open.
+ */
+export const AUDIO_NOISE_ROUTE = "/api/audio/noise";
+
+export type AudioNoiseRequest = { listener: string; level: number };
 
 /**
  * `POST /api/audio/speak`: say `text` on every audio stream open now, at its next gap. How an agent

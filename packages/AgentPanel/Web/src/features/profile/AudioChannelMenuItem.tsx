@@ -1,14 +1,17 @@
-// The Profile menu's audio channel entries: listen to what agents say, pause and resume, stop.
+// The Profile menu's audio channel entries: listen to what agents say, pause and resume, stop, and
+// how loud the bed of noise under them is on this device.
 //
 // The player itself is `audioChannelPlayer.ts`, outside React, so listening outlives this menu; the
 // menu reads where it got to when it is opened again.
 
 import { useSyncExternalStore } from "react";
 import { Pause, Play, Square, Volume2 } from "lucide-react";
+import { AUDIO_NOISE_LEVEL_MAX } from "@agentdesk/agent-feed-wire";
 import {
   audioChannelState,
   pauseListening,
   resumeListening,
+  setNoiseLevel,
   startListening,
   stopListening,
   subscribeAudioChannel,
@@ -37,6 +40,24 @@ export function AudioChannelMenuItem() {
           <span className="min-w-0 flex-1 truncate">Stop listening</span>
         </button>
       ) : null}
+      {/* Set before listening too, so the first second already sounds right. Left and right change
+          it; up and down still walk the menu. */}
+      <label className="flex items-center gap-3 border-t border-border px-3 py-2 text-sm">
+        <span className="shrink-0">Noise</span>
+        <input
+          type="range"
+          min={0}
+          max={AUDIO_NOISE_LEVEL_MAX}
+          step={1}
+          value={channel.noise}
+          onChange={(event) => setNoiseLevel(Number(event.target.value))}
+          aria-label="Noise level"
+          aria-valuetext={channel.noise === 0 ? "off" : `${channel.noise} of ${AUDIO_NOISE_LEVEL_MAX}`}
+          className="min-w-0 flex-1 cursor-pointer accent-primary focus-visible:outline-2 focus-visible:outline-offset-2
+            focus-visible:outline-primary"
+        />
+        <span className="w-6 shrink-0 text-right tabular-nums">{channel.noise === 0 ? "off" : channel.noise}</span>
+      </label>
       {channel.status ? (
         <p role="status" className="border-t border-border px-3 py-1.5 text-xs break-words text-muted-foreground">
           {channel.status}
