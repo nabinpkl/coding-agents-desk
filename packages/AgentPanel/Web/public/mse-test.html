@@ -1,0 +1,299 @@
+<!doctype html>
+<!--
+  Throwaway experiment, not part of the panel: does the audio channel play through Media Source
+  Extensions on this device, how far behind the newest audio does it run, and does it keep playing
+  on a locked screen. Feeds the real channel (`/api/audio/stream`) into an <audio> element through
+  ManagedMediaSource (iPhone) or MediaSource (Chrome). No Web Audio: iOS suspends it on lock.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>MSE Audio Test</title>
+    <style>
+      :root {
+        --ground: #f4f5f7;
+        --ink: #14161a;
+        --muted: #5b6270;
+        --line: #d5d8de;
+        --accent: #2f6fde;
+        --accent-ink: #ffffff;
+        --bad: #b42318;
+        --good: #1a7f37;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ground: #14161a;
+          --ink: #eceef2;
+          --muted: #9aa1ad;
+          --line: #2c3038;
+          --accent: #6b9cf2;
+          --accent-ink: #0d1117;
+          --bad: #ff7b72;
+          --good: #56d364;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--ink);
+        font: 16px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+      }
+      main {
+        max-width: 460px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      dt {
+        color: var(--muted);
+      }
+      dd {
+        margin: 0;
+      }
+      .yes {
+        color: var(--good);
+      }
+      .no {
+        color: var(--bad);
+      }
+      .big {
+        font-size: 32px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 14px 18px;
+        border-radius: 12px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--accent-ink);
+        touch-action: manipulation;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      pre {
+        margin: 0;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font: 12px/1.5 ui-monospace, Menlo, monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 40vh;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>MSE Audio Test</h1>
+      <a href="/rtc-test.html" style="color: var(--accent)">Open the WebRTC audio test</a>
+      <a href="/experiments/local-test.html" style="color: var(--accent)">Open the on-phone audio test</a>
+      <a href="/dictation-test.html" style="color: var(--accent)">Open the dictation test</a>
+      <a href="/dictate-box.html" style="color: var(--accent)">Open the dictation box</a>
+      <dl id="support"></dl>
+      <button id="start" type="button">Start</button>
+      <div>
+        <div class="muted">Behind the newest audio</div>
+        <div class="big" id="lag">-</div>
+      </div>
+      <dl id="live"></dl>
+      <pre id="log"></pre>
+    </main>
+    <script>
+      // Tunable from the address: ?keep=1&jump=3
+      const params = new URLSearchParams(location.search);
+      const KEEP = Number(params.get("keep") ?? 0.1); // seconds behind the newest audio to aim for
+      const JUMP_AT = Number(params.get("jump") ?? 3.0); // jump forward when further behind than this...
+      // Small drift is trimmed by playing a little fast rather than by jumping, which is heard.
+      const FAST = Number(params.get("fast") ?? 1.05); // playback rate while catching up
+      const DRIFT = 0.15; // start catching up this far past KEEP; stop once back within 0.03 s
+      const SUSTAIN_MS = Number(params.get("sustain") ?? 3000); // ...for this long, not on one burst
+      const KEEP_HISTORY = 10; // seconds of played audio left buffered
+      const TYPES = ["audio/aac", "audio/mpeg", 'audio/mp4; codecs="mp4a.40.2"'];
+      const Source = window.ManagedMediaSource ?? window.MediaSource;
+      const t0 = performance.now();
+      const since = () => ((performance.now() - t0) / 1000).toFixed(1).padStart(6) + "s";
+      const logBox = document.getElementById("log");
+      const log = (line) => {
+        logBox.textContent = `${since()}  ${line}\n` + logBox.textContent;
+      };
+      const row = (list, name, value, ok) => {
+        const dt = document.createElement("dt");
+        dt.textContent = name;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        if (ok !== undefined) dd.className = ok ? "yes" : "no";
+        list.append(dt, dd);
+      };
+
+      const support = document.getElementById("support");
+      row(support, "ManagedMediaSource", window.ManagedMediaSource ? "yes" : "no", !!window.ManagedMediaSource);
+      row(support, "MediaSource", window.MediaSource ? "yes" : "no", !!window.MediaSource);
+      for (const type of TYPES) {
+        const ok = !!Source && Source.isTypeSupported(type);
+        row(support, type, ok ? "yes" : "no", ok);
+      }
+
+      const state = { appended: 0, bytes: 0, jumps: 0, stalls: 0, startedAt: null };
+      const audio = document.createElement("audio");
+      audio.disableRemotePlayback = true; // ManagedMediaSource opens only with this or an AirPlay alternative
+      document.body.append(audio);
+      // ?noise=0 for a probe that hears only speech; ?probe=1 adds a sound detector, Mac only:
+      // it routes the element through Web Audio, which iOS suspends on lock.
+      const NOISE = Number(params.get("noise") ?? 3);
+      window.heard = [];
+      if (params.get("probe") === "1") {
+        const context = new AudioContext();
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        context.createMediaElementSource(audio).connect(analyser);
+        analyser.connect(context.destination);
+        const data = new Float32Array(analyser.fftSize);
+        let quietSince = performance.now();
+        setInterval(() => {
+          analyser.getFloatTimeDomainData(data);
+          const rms = Math.sqrt(data.reduce((sum, v) => sum + v * v, 0) / data.length);
+          if (rms < 0.01) quietSince ??= performance.now();
+          else {
+            if (quietSince !== null && performance.now() - quietSince > 500) window.heard.push(Date.now());
+            quietSince = null;
+          }
+        }, 5);
+      }
+      for (const name of ["playing", "pause", "waiting", "stalled", "ended", "error"]) {
+        audio.addEventListener(name, () => {
+          if (name === "waiting" || name === "stalled") state.stalls += 1;
+          log(`audio ${name}${name === "error" ? ": " + (audio.error?.message || audio.error?.code) : ""}`);
+        });
+      }
+
+      document.getElementById("start").addEventListener("click", (event) => {
+        event.currentTarget.disabled = true;
+        const type = TYPES.find((t) => Source?.isTypeSupported(t) && t === "audio/aac");
+        if (!Source || !type) {
+          log("no MSE that takes audio/aac here, so the ADTS stream cannot be fed as it is");
+          return;
+        }
+        const source = new Source();
+        source.addEventListener("startstreaming", () => log("source startstreaming"));
+        source.addEventListener("endstreaming", () => log("source endstreaming"));
+        source.addEventListener("sourceclose", () => log("source closed"));
+        audio.src = URL.createObjectURL(source);
+        // The tap must start playback itself on iOS; data arrives just after.
+        audio.play().then(
+          () => {
+            log("play() resolved");
+            if ("mediaSession" in navigator) {
+              navigator.mediaSession.metadata = new MediaMetadata({ title: "MSE Audio Test", artist: "Agent Desk" });
+            }
+          },
+          (error) => log(`play() refused: ${error.message}`),
+        );
+        source.addEventListener("sourceopen", () => feed(source, type), { once: true });
+      });
+
+      async function feed(source, type) {
+        log(`source open, feeding ${type}`);
+        const buffer = source.addSourceBuffer(type);
+        const queue = [];
+        const step = () => {
+          if (buffer.updating || source.readyState !== "open") return;
+          const r = buffer.buffered;
+          if (r.length && audio.currentTime - r.start(0) > KEEP_HISTORY + 5) {
+            buffer.remove(0, audio.currentTime - KEEP_HISTORY);
+            return;
+          }
+          const next = queue.shift();
+          if (!next) return;
+          try {
+            buffer.appendBuffer(next);
+          } catch (error) {
+            log(`append failed: ${error.name} ${error.message}`);
+          }
+        };
+        buffer.addEventListener("updateend", () => {
+          state.appended += 1;
+          if (state.appended === 1) log("first chunk buffered");
+          if (audio.paused && state.startedAt === null) audio.play().catch(() => {});
+          step();
+        });
+        buffer.addEventListener("error", () => log("source buffer error"));
+        const listener = crypto.randomUUID();
+        try {
+          const response = await fetch(`/api/audio/stream?listener=${listener}&noise=${NOISE}&color=pink&voice=8&at=${Date.now()}`);
+          log(`stream response ${response.status}`);
+          const reader = response.body.getReader();
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            state.bytes += value.length;
+            queue.push(value);
+            step();
+          }
+          log("stream ended");
+        } catch (error) {
+          log(`stream failed: ${error.message}`);
+        }
+      }
+
+      // Polled, as the removed video tile did: nothing announces how far behind playback runs.
+      const lagBox = document.getElementById("lag");
+      const live = document.getElementById("live");
+      audio.addEventListener("playing", () => (state.startedAt ??= performance.now()), { once: true });
+      const recent = [];
+      let overSince = null; // when playback last went past JUMP_AT behind, while it stays there
+      setInterval(() => {
+        const r = audio.buffered;
+        const edge = r.length ? r.end(r.length - 1) : 0;
+        const lag = edge - audio.currentTime;
+        if (r.length && !audio.paused) {
+          if (lag > KEEP + DRIFT && audio.playbackRate !== FAST) audio.playbackRate = FAST;
+          else if (lag <= KEEP + 0.03 && audio.playbackRate !== 1) audio.playbackRate = 1;
+        }
+        if (!(lag > JUMP_AT)) overSince = null;
+        else overSince ??= performance.now();
+        if (r.length && !audio.seeking && !audio.paused && overSince !== null && performance.now() - overSince >= SUSTAIN_MS) {
+          overSince = null;
+          audio.currentTime = edge - KEEP;
+          state.jumps += 1;
+          log(`jumped forward ${(lag - KEEP).toFixed(2)}s to the newest audio`);
+        }
+        lagBox.textContent = r.length ? `${lag.toFixed(2)} s` : "-";
+        if (r.length && !audio.paused) recent.push(lag);
+        if (recent.length > 40) recent.shift();
+        live.replaceChildren();
+        row(live, "Playing", audio.paused ? "no" : "yes");
+        row(live, "Position", `${audio.currentTime.toFixed(1)} s`);
+        row(live, "Received", `${(state.bytes / 1024).toFixed(0)} KB`);
+        row(live, "Jumps forward", String(state.jumps));
+        row(live, "Stalls", String(state.stalls));
+        row(live, "Speed", audio.playbackRate === 1 ? "1x" : `${audio.playbackRate}x, catching up`);
+        row(live, "Last 10 s", recent.length ? `${Math.min(...recent).toFixed(2)} to ${Math.max(...recent).toFixed(2)} s behind` : "-");
+        row(live, "Aiming for", `${KEEP} s, jump past ${JUMP_AT} s for ${SUSTAIN_MS / 1000} s`);
+      }, 250);
+    </script>
+  </body>
+</html>

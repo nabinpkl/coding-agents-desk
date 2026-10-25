@@ -1,0 +1,204 @@
+<!doctype html>
+<!--
+  Throwaway experiment, not part of the panel: Safari's own speech recognition (the Web Speech API,
+  `webkitSpeechRecognition`, Apple's dictation behind it) on the phone. Does it stream text while
+  you speak, how soon, how well on code words, and does it keep listening once the screen locks.
+  Every event is reported to the audio process so it can be read on the Mac.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Dictation Test</title>
+    <style>
+      :root {
+        --ground: #f4f5f7;
+        --ink: #14161a;
+        --muted: #5b6270;
+        --line: #d5d8de;
+        --accent: #2f6fde;
+        --accent-ink: #ffffff;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ground: #14161a;
+          --ink: #eceef2;
+          --muted: #9aa1ad;
+          --line: #2c3038;
+          --accent: #6b9cf2;
+          --accent-ink: #0d1117;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--ink);
+        font: 16px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+      }
+      main {
+        max-width: 460px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 14px 18px;
+        border-radius: 12px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--accent-ink);
+        touch-action: manipulation;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .label {
+        color: var(--muted);
+      }
+      .text {
+        min-height: 3em;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .interim {
+        color: var(--muted);
+      }
+      pre {
+        margin: 0;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font: 12px/1.5 ui-monospace, Menlo, monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 40vh;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Dictation Test</h1>
+      <div class="label" id="support"></div>
+      <button id="start" type="button">Start listening</button>
+      <div class="label">Heard (grey is still changing)</div>
+      <div class="text"><span id="final"></span> <span class="interim" id="interim"></span></div>
+      <pre id="log"></pre>
+    </main>
+    <script>
+      const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+      const t0 = performance.now();
+      const id = crypto.randomUUID().slice(0, 8);
+      const since = () => Math.round(performance.now() - t0);
+      const logBox = document.getElementById("log");
+      const pending = [];
+      const log = (line) => {
+        logBox.textContent = `${(since() / 1000).toFixed(1).padStart(6)}s  ${line}\n` + logBox.textContent;
+        pending.push({ atMs: since(), visibility: document.visibilityState, line });
+      };
+      document.getElementById("support").textContent = Recognition
+        ? "Speech recognition: available"
+        : "Speech recognition: not available in this browser";
+      const state = { speechStartAt: null, firstInterimAt: null, restarts: 0, listening: false, wanted: false };
+      let recognition = null;
+
+      function start() {
+        recognition = new Recognition();
+        recognition.lang = "en-US";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.onstart = () => {
+          state.listening = true;
+          log("listening");
+        };
+        recognition.onspeechstart = () => {
+          state.speechStartAt = since();
+          state.firstInterimAt = null;
+          log("speech started");
+        };
+        recognition.onresult = (event) => {
+          let interim = "";
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            const text = result[0].transcript;
+            if (result.isFinal) {
+              document.getElementById("final").textContent += text + " ";
+              const fromSpeech = state.speechStartAt === null ? "" : `, ${since() - state.speechStartAt} ms after speech started`;
+              log(`final${fromSpeech}: "${text.trim()}" (confidence ${result[0].confidence.toFixed(2)})`);
+            } else {
+              interim += text;
+            }
+          }
+          document.getElementById("interim").textContent = interim;
+          if (interim && state.firstInterimAt === null) {
+            state.firstInterimAt = since();
+            const fromSpeech = state.speechStartAt === null ? "" : ` ${state.firstInterimAt - state.speechStartAt} ms after speech started`;
+            log(`first words on screen${fromSpeech}: "${interim.trim()}"`);
+          }
+        };
+        recognition.onspeechend = () => log("speech ended");
+        recognition.onerror = (event) => log(`error: ${event.error}${event.message ? ` ${event.message}` : ""}`);
+        recognition.onend = () => {
+          state.listening = false;
+          log("stopped listening");
+          // Recognition ends on its own (silence, a time limit, the page hidden); start again while
+          // the test wants it, and count how often that happens.
+          if (state.wanted) {
+            state.restarts += 1;
+            try {
+              recognition.start();
+            } catch (error) {
+              log(`restart refused: ${error.message}`);
+            }
+          }
+        };
+        recognition.start();
+      }
+
+      document.getElementById("start").addEventListener("click", (event) => {
+        if (!Recognition) return;
+        if (state.wanted) {
+          state.wanted = false;
+          recognition?.stop();
+          event.currentTarget.textContent = "Start listening";
+          return;
+        }
+        state.wanted = true;
+        event.currentTarget.textContent = "Stop listening";
+        start();
+      });
+      document.addEventListener("visibilitychange", () => log(`page ${document.visibilityState}`));
+
+      // Reported once a second so the Mac can read it: what happened, and whether it was locked.
+      setInterval(() => {
+        fetch("/api/audio/test-reports", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            kind: "dictation-test",
+            page: id,
+            visibility: document.visibilityState,
+            listening: state.listening,
+            restarts: state.restarts,
+            log: pending.splice(0),
+          }),
+          keepalive: true,
+        }).catch(() => {});
+      }, 1000);
+    </script>
+  </body>
+</html>

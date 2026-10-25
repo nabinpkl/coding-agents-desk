@@ -1,0 +1,627 @@
+<!doctype html>
+<!--
+  Throwaway experiment, not part of the panel: Safari's own speech recognition (Apple's dictation)
+  filling an editable box. Finished phrases are added at the end of the box and never replace what
+  is there, so edits survive; the phrase still being heard shows in grey under the box. Between
+  "start spelling" and "end spelling", NATO words become letters (a near-miss counts as the nearest
+  NATO word; one too far off shows as "?"), and a phrase Apple was unsure of (confidence under 0.5)
+  is underlined. Whether
+  Apple itself revises or drops earlier phrases is logged, and everything is reported to the audio
+  process so it can be read on the Mac.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Dictation Box</title>
+    <style>
+      :root {
+        --ground: #f4f5f7;
+        --ink: #14161a;
+        --muted: #5b6270;
+        --line: #d5d8de;
+        --accent: #2f6fde;
+        --accent-ink: #ffffff;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ground: #14161a;
+          --ink: #eceef2;
+          --muted: #9aa1ad;
+          --line: #2c3038;
+          --accent: #6b9cf2;
+          --accent-ink: #0d1117;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--ground);
+        color: var(--ink);
+        font: 16px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+      }
+      main {
+        max-width: 560px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 12px 16px;
+        border-radius: 12px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--accent-ink);
+        touch-action: manipulation;
+      }
+      button.quiet {
+        background: transparent;
+        color: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .mic-row {
+        align-items: center;
+      }
+      select {
+        font: inherit;
+        flex: 1;
+        min-width: 0;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--ground);
+        color: var(--ink);
+      }
+      select:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .box {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        min-height: 40vh;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .box:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .unsure {
+        text-decoration: underline dotted var(--accent);
+        text-underline-offset: 3px;
+      }
+      .spelled {
+        font-family: ui-monospace, Menlo, monospace;
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        border-radius: 4px;
+        padding: 0 3px;
+      }
+      .interim {
+        min-height: 1.4em;
+        color: var(--muted);
+      }
+      .status {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      pre {
+        margin: 0;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font: 12px/1.5 ui-monospace, Menlo, monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 25vh;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Dictation Box</h1>
+      <div class="row">
+        <button id="listen" type="button">Start listening</button>
+        <button id="clear" type="button" class="quiet">Clear</button>
+        <button id="copy" type="button" class="quiet">Copy</button>
+        <button id="send" type="button" class="quiet">Send</button>
+      </div>
+      <div class="status" id="status">Not listening</div>
+      <div class="row mic-row">
+        <label for="mic-choice" class="status">Mic</label>
+        <select id="mic-choice"><option value="">Default (iOS picks)</option></select>
+        <button id="allow-mic" type="button" class="quiet">Allow mic</button>
+      </div>
+      <div class="status" id="mic-status">Mic to the Mac: off</div>
+      <div id="box-label" class="status">Text (edit freely; new phrases are added at the end)</div>
+      <div id="box" class="box" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="box-label" spellcheck="false"></div>
+      <div class="interim" id="interim" aria-live="polite"></div>
+      <pre id="log"></pre>
+    </main>
+    <script>
+      const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+      const box = document.getElementById("box");
+      const interimLine = document.getElementById("interim");
+      const status = document.getElementById("status");
+      const logBox = document.getElementById("log");
+      const t0 = performance.now();
+      const id = crypto.randomUUID().slice(0, 8);
+      const pending = [];
+      const log = (line) => {
+        logBox.textContent = `${((performance.now() - t0) / 1000).toFixed(1).padStart(6)}s  ${line}\n` + logBox.textContent;
+        pending.push(line);
+      };
+      let wanted = false;
+      let current = null; // the recognition session listening now
+      let sessions = 0;
+      let aborts = 0; // sessions in a row that ended "aborted" before hearing anything
+      // Per recognition session: the finished phrases as Apple last reported them, by index, to see
+      // whether Apple ever changes or drops one it has already finished.
+      let finished = [];
+
+      // Spelling: between the markers, NATO words (and a few symbol words) become letters.
+      const NATO = {
+        alpha: "a", alfa: "a", bravo: "b", charlie: "c", delta: "d", echo: "e", foxtrot: "f", golf: "g",
+        hotel: "h", india: "i", juliet: "j", juliett: "j", kilo: "k", lima: "l", mike: "m", november: "n",
+        oscar: "o", papa: "p", quebec: "q", romeo: "r", sierra: "s", tango: "t", uniform: "u", victor: "v",
+        whiskey: "w", whisky: "w", xray: "x", yankee: "y", zulu: "z", dash: "-", hyphen: "-", dot: ".",
+        period: ".", underscore: "_", slash: "/", zero: "0", one: "1", two: "2", three: "3", four: "4",
+        five: "5", six: "6", seven: "7", eight: "8", nine: "9",
+      };
+      const START = /\bstart(?:ing)?[\s,.:;-]+spell(?:ing)?\b[.,!?]?/i;
+      const END = /\b(?:end|and|stop)(?:ing)?[\s,.:;-]+spell(?:ing)?\b[.,!?]?/i; // "end" is often heard as "and"
+      /** Likeness of two words, 0 to 1: twice their longest common subsequence over their lengths. */
+      function likeness(a, b) {
+        const row = new Array(b.length + 1).fill(0);
+        for (let i = 1; i <= a.length; i += 1) {
+          let diagonal = 0;
+          for (let j = 1; j <= b.length; j += 1) {
+            const above = row[j];
+            row[j] = a[i - 1] === b[j - 1] ? diagonal + 1 : Math.max(row[j], row[j - 1]);
+            diagonal = above;
+          }
+        }
+        return (2 * row[b.length]) / (a.length + b.length);
+      }
+      /** One spoken word as a letter: a NATO word, a single letter, or the nearest NATO word; else "?". */
+      function letter(word) {
+        if (NATO[word]) return NATO[word];
+        if (word.length === 1) return word;
+        let best = null;
+        let score = 0;
+        for (const name of Object.keys(NATO)) {
+          const likely = likeness(word, name);
+          if (likely > score) [best, score] = [name, likely];
+        }
+        if (score >= 0.5) {
+          log(`spelling: heard "${word}", taken as ${best}`);
+          return NATO[best];
+        }
+        log(`spelling: "${word}" is not near any NATO word`);
+        return "?";
+      }
+      function letters(text) {
+        const spoken = text.toLowerCase().replace(/x[\s-]ray/g, "xray").replace(/fox trot/g, "foxtrot");
+        return (spoken.match(/[a-z0-9]+/g) ?? []).map(letter).join("");
+      }
+
+      let spelling = null; // the span collecting letters while between the markers
+      function spaceBefore() {
+        const last = box.lastChild?.textContent ?? "";
+        if (last && !/\s$/.test(last)) box.append(" ");
+      }
+      function addText(text, unsure) {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        spaceBefore();
+        const span = document.createElement("span");
+        span.textContent = trimmed;
+        if (unsure) {
+          span.className = "unsure";
+          span.title = "Apple was unsure of this phrase";
+        }
+        box.append(span);
+      }
+      /**
+       * Adds a finished phrase at the end of the box, never touching what is already there. Spelling
+       * can start in one phrase and end several phrases later, so whether it is open lives in `spelling`.
+       */
+      function append(text, confidence) {
+        const unsure = confidence < 0.5;
+        let rest = text;
+        while (rest) {
+          if (spelling) {
+            const end = END.exec(rest);
+            spelling.textContent += letters(end ? rest.slice(0, end.index) : rest);
+            if (!end) break;
+            log(`spelled: "${spelling.textContent}"`);
+            spelling = null;
+            rest = rest.slice(end.index + end[0].length);
+            continue;
+          }
+          const start = START.exec(rest);
+          if (!start) {
+            addText(rest, unsure);
+            break;
+          }
+          addText(rest.slice(0, start.index), unsure);
+          spaceBefore();
+          spelling = document.createElement("span");
+          spelling.className = "spelled";
+          box.append(spelling);
+          rest = rest.slice(start.index + start[0].length);
+        }
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function listen() {
+        const recognition = new Recognition();
+        current = recognition;
+        recognition.lang = "en-US";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        sessions += 1;
+        finished = [];
+        recognition.onstart = () => {
+          status.textContent = `Listening (session ${sessions})`;
+          log(`listening, session ${sessions}`);
+        };
+        recognition.onresult = (event) => {
+          aborts = 0;
+          let interim = "";
+          for (let i = 0; i < event.results.length; i += 1) {
+            const result = event.results[i];
+            const text = result[0].transcript;
+            if (result.isFinal) {
+              if (finished[i] === undefined) {
+                finished[i] = text;
+                if (!heardPhrase(text, result[0].confidence)) append(text, result[0].confidence);
+                log(`added: "${text.trim()}" (confidence ${result[0].confidence.toFixed(2)})`);
+              } else if (finished[i] !== text) {
+                log(`Apple revised a finished phrase: "${finished[i].trim()}" became "${text.trim()}" (the box keeps the first)`);
+                finished[i] = text;
+              }
+            } else if (i >= event.resultIndex) {
+              interim += text;
+            }
+          }
+          if (event.results.length < finished.length) {
+            log(`Apple dropped phrases: it reports ${event.results.length}, had ${finished.length}`);
+          }
+          interimLine.textContent = interim ? `hearing: ${interim.trim()}` : "";
+        };
+        recognition.onerror = (event) => {
+          aborts = event.error === "aborted" ? aborts + 1 : 0;
+          log(`error: ${event.error}`);
+        };
+        recognition.onend = () => {
+          interimLine.textContent = "";
+          if (wanted && aborts >= 3) {
+            wanted = false;
+            document.getElementById("listen").textContent = "Start listening";
+            stopForwarding();
+            log(`dictation aborted ${aborts} times in a row; stopped trying`);
+            status.textContent = `Dictation was aborted ${aborts} times in a row, so it stopped`;
+            aborts = 0;
+            return;
+          }
+          if (!wanted) {
+            status.textContent = "Not listening";
+            log("stopped");
+            return;
+          }
+          // Apple ends a session on its own after silence or a time limit; a new one starts with an
+          // empty list, which is why phrases live in the box and not in Apple's list.
+          log(`session ${sessions} ended by itself; starting another`);
+          setTimeout(() => wanted && listen(), 300);
+        };
+        recognition.start();
+      }
+
+      document.getElementById("listen").addEventListener("click", (event) => {
+        if (!Recognition) {
+          status.textContent = "Speech recognition is not available in this browser";
+          return;
+        }
+        wanted = !wanted;
+        audio ??= new AudioContext(); // made inside the tap, so iOS lets the page speak later
+        void audio.resume();
+        event.currentTarget.textContent = wanted ? "Stop listening" : "Start listening";
+        if (wanted) void startForwarding().then(listen);
+        else {
+          status.textContent = "Stopping…";
+          current?.stop(); // finishes the phrase being heard, then ends
+          stopForwarding();
+        }
+      });
+      document.getElementById("clear").addEventListener("click", () => {
+        box.replaceChildren();
+        spelling = null;
+        log("box cleared by hand");
+      });
+      // Sending. "send it now" at the end of a phrase asks "Send it?" in the Mac's voice; "yes" sends,
+      // "no" keeps the text; anything else is more dictation. No model decides this: the question is
+      // spoken back, so a mistaken trigger costs one answer.
+      const SEND_TRIGGER = /[\s,.]*\bsend (?:it|this|that) now\b[.!?]?\s*$/i;
+      // Not "send": the page's own "Send it?" can be heard back by the recognizer.
+      const YES = /^\W*(?:yes|yeah|yep|yup|sure|go ahead|do it)\b/i;
+      const NO = /^\W*(?:no|nope|cancel|not yet|wait|don't)\b/i;
+      const ASK_MS = 8000;
+      let asking = null; // { timer } while "Send it?" waits for an answer
+      let speakingUntil = 0; // phrases heard while the page itself is talking are its own voice
+      let audio = null;
+      async function say(text) {
+        // Deaf to its own voice from the moment it starts to speak, not only once the audio arrives.
+        speakingUntil = performance.now() + 2500;
+        audio ??= new AudioContext();
+        if (audio.state !== "running") await audio.resume();
+        const response = await fetch("/api/audio/kitten-tts", { method: "POST", body: JSON.stringify({ text }) });
+        const samples = new Float32Array(await response.arrayBuffer());
+        const buffer = audio.createBuffer(1, samples.length, 24000);
+        buffer.getChannelData(0).set(samples);
+        const source = audio.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audio.destination);
+        source.start();
+        speakingUntil = performance.now() + buffer.duration * 1000 + 600;
+      }
+      async function send(how) {
+        const text = box.innerText.trim();
+        if (!text) return log("nothing to send");
+        try {
+          await fetch("/api/audio/kitten-heard", {
+            method: "POST",
+            body: JSON.stringify({ text: `[voice, dictated] ${text}`, how }),
+          });
+          log(`sent by ${how}: "${text}"`);
+          box.replaceChildren();
+          spelling = null;
+          void say("Sent.").catch(() => {});
+        } catch (error) {
+          log(`send failed: ${error.message}; the text stays in the box`);
+        }
+      }
+      function endQuestion() {
+        clearTimeout(asking?.timer);
+        asking = null;
+        status.textContent = wanted ? `Listening (session ${sessions})` : "Not listening";
+      }
+      /** Asks "Send it?" and waits for a spoken yes or no; `trigger` names what asked, for the log. */
+      function askToSend(trigger) {
+        status.textContent = "Send it? Say yes or no";
+        asking = {
+          trigger,
+          timer: setTimeout(() => {
+            log("not sent: no answer");
+            endQuestion();
+          }, ASK_MS),
+        };
+        log(`asked to send (${trigger}): "${box.innerText.trim()}"`);
+        void say("Send it?").catch((error) => log(`could not ask: ${error.message}`));
+      }
+      /** A finished phrase that is a send trigger or an answer to "Send it?"; true if it was used up. */
+      function heardPhrase(text, confidence) {
+        if (performance.now() < speakingUntil) {
+          log(`ignored while the page was talking: "${text.trim()}"`);
+          return true;
+        }
+        if (asking) {
+          if (YES.test(text)) {
+            const how = `yes after ${asking.trigger}`;
+            endQuestion();
+            void send(how);
+            return true;
+          }
+          if (NO.test(text)) {
+            endQuestion();
+            log("not sent: answered no");
+            void say("Okay, not sent.").catch(() => {});
+            return true;
+          }
+          endQuestion();
+          log("not sent: kept dictating");
+          return false;
+        }
+        const trigger = SEND_TRIGGER.exec(text);
+        if (!trigger) return false;
+        append(text.slice(0, trigger.index), confidence);
+        askToSend('"send it now"');
+        return true;
+      }
+      document.getElementById("send").addEventListener("click", () => void send("the Send button"));
+
+      // The raw mic goes to the Mac in 100 ms pieces while dictation runs, so the Mac can hear a
+      // double tap on the back of the phone (two sharp knocks) and have the page ask "Send it?".
+      // The Mac keeps the recording. ?forward=0 turns this off.
+      const FORWARD = new URLSearchParams(location.search).get("forward") !== "0";
+      // The earlier test page shared the mic with dictation with the voice processing on; asking for
+      // the raw mic (?raw=1) left dictation aborting at every start, so raw is the variant here.
+      const RAW_MIC = new URLSearchParams(location.search).get("raw") === "1";
+      const MIC_WORKLET = `
+        class Forward extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this.step = sampleRate / 16000;
+            this.sum = 0; this.count = 0; this.pos = 0;
+            this.out = new Int16Array(1600); this.i = 0;
+          }
+          process(inputs) {
+            const input = inputs[0][0];
+            if (!input) return true;
+            for (let k = 0; k < input.length; k += 1) {
+              this.sum += input[k]; this.count += 1; this.pos += 1;
+              if (this.pos < this.step) continue;
+              this.pos -= this.step;
+              const value = this.sum / this.count;
+              this.sum = 0; this.count = 0;
+              this.out[this.i++] = Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
+              if (this.i === this.out.length) {
+                this.port.postMessage(this.out.buffer, [this.out.buffer]);
+                this.out = new Int16Array(1600); this.i = 0;
+              }
+            }
+            return true;
+          }
+        }
+        registerProcessor("forward", Forward);
+      `;
+      const mic = { node: null, source: null, track: null, queue: [], sending: false, seconds: 0, knocks: 0 };
+      const micStatus = document.getElementById("mic-status");
+      async function startForwarding() {
+        if (!FORWARD || mic.track) return;
+        try {
+          const chosen = micChoice.value;
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: !RAW_MIC,
+              noiseSuppression: !RAW_MIC,
+              autoGainControl: !RAW_MIC,
+              ...(chosen ? { deviceId: { exact: chosen } } : {}),
+            },
+          });
+          const track = stream.getAudioTracks()[0];
+          if (mic.track) mic.track.stop(); // a second start raced this one; this one wins
+          mic.track = track;
+          const settings = track.getSettings();
+          await listMics(settings.deviceId); // names are only given once the page may use the mic
+          if (mic.track !== track) return; // stopped or restarted while the list was read
+          if (!mic.node) {
+            await audio.audioWorklet.addModule(URL.createObjectURL(new Blob([MIC_WORKLET], { type: "text/javascript" })));
+            mic.node = new AudioWorkletNode(audio, "forward");
+            const silent = audio.createGain();
+            silent.gain.value = 0; // the node only runs while something downstream pulls it
+            mic.node.connect(silent).connect(audio.destination);
+            mic.node.port.onmessage = (event) => {
+              mic.queue.push(new Int16Array(event.data));
+              void pump();
+            };
+          }
+          mic.source = audio.createMediaStreamSource(stream);
+          mic.source.connect(mic.node);
+          micStatus.textContent = "Mic to the Mac: on";
+          log(`mic to the Mac${RAW_MIC ? " (raw)" : ""}: "${track.label || "unnamed"}", ${audio.sampleRate} Hz, echo cancellation ${settings.echoCancellation}, noise suppression ${settings.noiseSuppression}, gain control ${settings.autoGainControl}`);
+        } catch (error) {
+          micStatus.textContent = `Mic to the Mac: failed (${error.message})`;
+          log(`mic to the Mac failed: ${error.message}`);
+        }
+      }
+      // The mic to forward. Apple's dictation picks its own input; this chooses only what the Mac hears.
+      const micChoice = document.getElementById("mic-choice");
+      let micsSeen = "";
+      async function listMics(inUse) {
+        const mics = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === "audioinput");
+        // Until a choice is made, the phone's own mic rather than whatever iOS routes to (a headset).
+        const builtIn = mics.find((device) => /iphone|built-in|internal/i.test(device.label));
+        const keep = inUse ?? (micChoice.value || builtIn?.deviceId || "");
+        micChoice.replaceChildren(new Option("Default (iOS picks)", ""));
+        mics.forEach((device, i) => micChoice.append(new Option(device.label || `Mic ${i + 1}`, device.deviceId)));
+        if (mics.some((device) => device.deviceId === keep)) micChoice.value = keep;
+        const seen = mics.map((device) => `"${device.label || "unnamed"}" (${device.deviceId.slice(0, 6) || "no id"})`).join(", ");
+        if (seen !== micsSeen) log(`mics offered: ${mics.length}: ${seen || "none"}`);
+        micsSeen = seen;
+      }
+      void listMics().catch((error) => log(`could not list mics: ${error.message}`));
+      navigator.mediaDevices.addEventListener?.("devicechange", () => void listMics().catch(() => {}));
+      // Permission as a step of its own: ask, let the mic go at once, and name the mics so one can
+      // be chosen before anything listens.
+      document.getElementById("allow-mic").addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((track) => track.stop());
+          await listMics();
+          button.textContent = "Mic allowed";
+          button.disabled = true;
+          log(`mic allowed; chosen: "${micChoice.selectedOptions[0]?.textContent}"`);
+        } catch (error) {
+          log(`mic not allowed: ${error.message}`);
+        }
+      });
+      micChoice.addEventListener("change", async () => {
+        log(`mic chosen: "${micChoice.selectedOptions[0]?.textContent}"`);
+        if (!mic.track) return;
+        stopForwarding();
+        await startForwarding();
+      });
+      function stopForwarding() {
+        mic.source?.disconnect();
+        mic.track?.stop();
+        mic.source = null;
+        mic.track = null;
+        micStatus.textContent = "Mic to the Mac: off";
+      }
+      /** Sends what the worklet has recorded, one request at a time so the pieces arrive in order. */
+      async function pump() {
+        if (mic.sending || !mic.queue.length) return;
+        mic.sending = true;
+        const parts = mic.queue.splice(0);
+        const joined = new Int16Array(parts.reduce((n, part) => n + part.length, 0));
+        let at = 0;
+        for (const part of parts) {
+          joined.set(part, at);
+          at += part.length;
+        }
+        const talking = performance.now() < speakingUntil ? 1 : 0; // the Mac ignores the page's own voice
+        try {
+          const response = await fetch(`/api/audio/kitten-mic?page=${id}&talking=${talking}`, { method: "POST", body: joined.buffer });
+          const result = await response.json();
+          mic.seconds += joined.length / 16000;
+          for (const line of result.knocks) {
+            if (line.includes("KNOCK")) mic.knocks += 1;
+            log(`Mac: ${line.trim()}`);
+          }
+          micStatus.textContent = `Mic to the Mac: ${mic.seconds.toFixed(0)} s sent, ${mic.knocks} knock(s) heard`;
+          if (result.double) {
+            if (asking) log("double tap while already asking: ignored");
+            else askToSend("a double tap");
+          }
+        } catch (error) {
+          log(`mic piece not sent: ${error.message}`);
+        }
+        mic.sending = false;
+        void pump();
+      }
+
+      document.getElementById("copy").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(box.innerText);
+          log("copied");
+        } catch (error) {
+          log(`copy failed: ${error.message}`);
+        }
+      });
+
+      // Reported once a second, so the Mac can read what happened.
+      setInterval(() => {
+        if (!pending.length) return;
+        fetch("/api/audio/test-reports", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ kind: "dictate-box", page: id, visibility: document.visibilityState, box: box.innerText.slice(-500), log: pending.splice(0) }),
+          keepalive: true,
+        }).catch(() => {});
+      }, 1000);
+    </script>
+  </body>
+</html>

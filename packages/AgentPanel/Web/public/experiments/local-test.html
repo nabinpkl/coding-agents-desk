@@ -340,6 +340,24 @@
             <option value="brown">Brown: low rumble</option>
           </select>
         </label>
+        <label class="level" for="noise-shape">
+          <span>Shape</span>
+          <select id="noise-shape">
+            <option value="speaker">Phone speaker: warm, fuller, soft top</option>
+            <option value="headphones">Headphones: deep, in stereo</option>
+            <option value="original">Original</option>
+          </select>
+        </label>
+        <label class="level" for="noise-fullness" id="fullness-row">
+          <span>Fullness</span>
+          <input id="noise-fullness" type="range" min="0" max="10" step="1" />
+          <output id="noise-fullness-out" for="noise-fullness"></output>
+        </label>
+        <label class="level" for="noise-softness" id="softness-row">
+          <span>Softness</span>
+          <input id="noise-softness" type="range" min="0" max="10" step="1" />
+          <output id="noise-softness-out" for="noise-softness"></output>
+        </label>
       </fieldset>
       <details class="voice-test" id="voice-test">
         <summary>Voice test</summary>
@@ -405,6 +423,7 @@
       })();
     </script>
     <script src="/experiments/tinytts-front.js"></script>
+    <script src="/experiments/noise-shaping.js"></script>
     <script>
       const params = new URLSearchParams(location.search);
       // Which test this page is running: its link is marked, and its name is shown above the links.
@@ -419,6 +438,7 @@
       // (loudness is heard on a log scale), as Agent Radio's are. Remembered in this browser.
       const LEVEL_MAX = 10;
       const COLORS = ["white", "pink", "brown"];
+      const SHAPES = ["speaker", "headphones", "original"];
       const stored = (key) => {
         try {
           return localStorage.getItem(`localTest.${key}`);
@@ -441,6 +461,11 @@
         voice: storedLevel("voice", 8),
         noise: storedLevel("noise", 3),
         color: COLORS.includes(stored("color")) ? stored("color") : "pink",
+        // What the noise is shaped for (`noise-shaping.js`), and, for the phone's speaker, how much
+        // of the low rumble's harmonics are added (fullness) and how far the top is cut (softness).
+        shape: SHAPES.includes(stored("shape")) ? stored("shape") : "speaker",
+        fullness: storedLevel("fullness", 6),
+        softness: storedLevel("softness", 6),
         // Off: only the agent is heard. The loop keeps running either way, so turning it back on
         // needs no new source and starts without a click.
         noiseOn: stored("noiseOn") !== "false",
@@ -455,8 +480,13 @@
       // never digital silence, and far below anything heard at full volume.
       const KEEP_ALIVE_GAIN = 0.0006;
       const noiseGain = () => (mix.noiseOn ? heardShare(mix.noise) : mix.keepAlive ? KEEP_ALIVE_GAIN : 0);
+      /** The loop that plays for the mix as it is: one per color and shaping. */
+      const noiseKey = () =>
+        mix.shape === "speaker"
+          ? `${mix.color} for speaker, fullness ${mix.fullness}, softness ${mix.softness}`
+          : `${mix.color}${mix.shape === "original" ? ", original" : " for headphones"}`;
       const noiseState = () =>
-        mix.noiseOn ? `noise ${mix.noise} ${mix.color}` : mix.keepAlive ? "noise off, keep-alive hiss" : "noise off, silent";
+        mix.noiseOn ? `noise ${mix.noise} ${noiseKey()}` : mix.keepAlive ? "noise off, keep-alive hiss" : "noise off, silent";
       const ENGINE = ["sam", "espeak", "tiny", "kokoro"].includes(params.get("engine")) ? params.get("engine") : "kitten";
       // ?kprec=int8 for the 24 MB 8-bit model; full precision (57 MB) by default, which runs faster here.
       const KITTEN =
@@ -1551,61 +1581,29 @@
       let voiceBus = null;
       const sam = new SamJs();
 
-      /** One noise sample per call, of each color, roughly unit scale (as Agent Radio's `noiseColors.ts`). */
-      const NOISE_SOURCES = {
-        white: () => () => Math.random() * 2 - 1,
-        // Kellet's filter on white: within half a decibel of -3 dB an octave.
-        pink: () => {
-          let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-          return () => {
-            const white = Math.random() * 2 - 1;
-            b0 = 0.99886 * b0 + white * 0.0555179;
-            b1 = 0.99332 * b1 + white * 0.0750759;
-            b2 = 0.969 * b2 + white * 0.153852;
-            b3 = 0.8665 * b3 + white * 0.3104856;
-            b4 = 0.55 * b4 + white * 0.5329522;
-            b5 = -0.7616 * b5 - white * 0.016898;
-            const out = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
-            b6 = white * 0.115926;
-            return out;
-          };
-        },
-        // White summed with a slow leak back to zero: -6 dB an octave, wandering without drifting off.
-        brown: () => {
-          let last = 0;
-          return () => (last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02);
-        },
-      };
-      /** Every color is scaled to this loudness (RMS) before its level, so a level sounds alike in each. */
+      /** Every color is matched to this loudness (its RMS, for the original) before its level. */
       const NOISE_RMS = 0.3 / Math.sqrt(3);
+      /** Made loops, newest last; a few kept, so going back to a color or shaping is immediate. */
       const noiseLoops = new Map();
+      const LOOPS_KEPT = 6;
 
-      /**
-       * Eight seconds of `color`, looped without a seam: made past its end, and that overrun faded in
-       * over the start, so the last sample runs into the first as any sample runs into the next.
-       */
-      function noiseLoop(ctx, color) {
-        const cached = noiseLoops.get(color);
+      /** Eight seconds of the mix's noise that loops without a seam (`noise-shaping.js`). */
+      function noiseLoop(ctx, key) {
+        const cached = noiseLoops.get(key);
         if (cached) return cached;
-        const rate = ctx.sampleRate;
-        const length = rate * 8;
-        const fade = Math.round(rate / 2);
-        const next = NOISE_SOURCES[color]();
-        for (let i = 0; i < rate; i += 1) next(); // settled: the filters start from rest
-        const raw = new Float32Array(length + fade);
-        for (let i = 0; i < raw.length; i += 1) raw[i] = next();
-        for (let i = 0; i < fade; i += 1) {
-          const share = (i / fade) * (Math.PI / 2);
-          raw[i] = raw[i] * Math.sin(share) + raw[length + i] * Math.cos(share);
-        }
-        let sum = 0;
-        for (let i = 0; i < length; i += 1) sum += raw[i] * raw[i];
-        const scale = NOISE_RMS / Math.sqrt(sum / length);
-        const buffer = ctx.createBuffer(1, length, rate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < length; i += 1) data[i] = Math.max(-1, Math.min(1, raw[i] * scale));
-        noiseLoops.set(color, buffer);
-        return buffer;
+        const at = performance.now();
+        const made = NoiseShaping.loop(ctx, {
+          color: mix.color,
+          shape: mix.shape,
+          targetRms: NOISE_RMS,
+          fullness: mix.fullness,
+          softness: mix.softness,
+        });
+        const short = made.shortDb > 0.05 ? `, ${made.shortDb.toFixed(1)} dB under matched loudness to stay below full scale` : "";
+        log(`noise ${key}: made in ${Math.round(performance.now() - at)} ms, ${made.buffer.numberOfChannels === 2 ? "stereo" : "mono"}${short}`);
+        noiseLoops.set(key, made.buffer);
+        while (noiseLoops.size > LOOPS_KEPT) noiseLoops.delete(noiseLoops.keys().next().value);
+        return made.buffer;
       }
 
       let noiseBus = null;
@@ -1616,7 +1614,8 @@
       function playNoiseColor() {
         const now = context.currentTime;
         const source = context.createBufferSource();
-        source.buffer = noiseLoop(context, mix.color);
+        const key = noiseKey();
+        source.buffer = noiseLoop(context, key);
         source.loop = true;
         const fader = context.createGain();
         source.connect(fader).connect(noiseBus);
@@ -1628,7 +1627,7 @@
           noisePlaying.source.stop(now + COLOR_FADE_S + 0.05);
         }
         source.start(now);
-        noisePlaying = { source, fader, color: mix.color };
+        noisePlaying = { source, fader, key };
       }
 
       /** Moves the page's gains to the mix, smoothed over about 30 ms so a slider step does not click. */
@@ -1637,7 +1636,7 @@
         const now = context.currentTime;
         noiseBus.gain.setTargetAtTime(noiseGain(), now, 0.03);
         voiceBus.gain.setTargetAtTime(heardShare(mix.voice), now, 0.03);
-        if (noisePlaying && noisePlaying.color !== mix.color) playNoiseColor();
+        if (noisePlaying && noisePlaying.key !== noiseKey()) playNoiseColor();
       }
 
       for (const key of ["voice", "noise"]) {
@@ -1663,6 +1662,38 @@
           log(`noise color ${mix.color}`);
         });
       }
+      /** The speaker's own knobs, shown only while the noise is shaped for it. */
+      function showShape() {
+        const speaker = mix.shape === "speaker";
+        document.getElementById("fullness-row").hidden = !speaker;
+        document.getElementById("softness-row").hidden = !speaker;
+      }
+      {
+        const select = document.getElementById("noise-shape");
+        select.value = mix.shape;
+        showShape();
+        select.addEventListener("change", () => {
+          mix.shape = select.value;
+          remember("shape", mix.shape);
+          showShape();
+          applyMix();
+          log(`noise shaped for ${mix.shape}`);
+        });
+      }
+      for (const key of ["fullness", "softness"]) {
+        const input = document.getElementById(`noise-${key}`);
+        const shown = document.getElementById(`noise-${key}-out`);
+        input.value = String(mix[key]);
+        shown.textContent = String(mix[key]);
+        input.addEventListener("input", () => (shown.textContent = input.value));
+        // A new loop is made on letting go, not at every step of a drag.
+        input.addEventListener("change", () => {
+          mix[key] = Number(input.value);
+          remember(key, mix[key]);
+          applyMix();
+          log(`noise ${key} ${mix[key]}`);
+        });
+      }
       {
         const noiseOn = document.getElementById("noise-on");
         const keepAlive = document.getElementById("keep-alive");
@@ -1672,7 +1703,9 @@
           // The hiss only matters with the noise off, and the noise's own controls only with it on.
           document.getElementById("keep-alive-row").hidden = mix.noiseOn;
           document.getElementById("noise-level").disabled = !mix.noiseOn;
-          document.getElementById("noise-color").disabled = !mix.noiseOn;
+          for (const id of ["noise-color", "noise-shape", "noise-fullness", "noise-softness"]) {
+            document.getElementById(id).disabled = !mix.noiseOn;
+          }
         };
         shown();
         for (const [input, key] of [
