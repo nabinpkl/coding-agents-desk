@@ -185,3 +185,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0152 | An arena pass sends one lane's answer to a lane on the other side                                                | accepted                         | 2026-10-23 |
 | ADR-0153 | An arena run may name a plain folder, which it makes a repository                                                | superseded by ADR-0154           | 2026-10-23 |
 | ADR-0154 | An arena run never makes a repository of the reader's folder; the reader asks for one                            | accepted                         | 2026-10-23 |
+| ADR-0155 | Group is its own package, the pilot for Effect, with its own compiler settings, lint and tests                   | accepted                         | 2026-10-25 |
