@@ -20,8 +20,9 @@ This document is meant to change, and then to go out of date.
 
 ## What it is
 
-A room where you and two to six agents (Claude or opencode lanes) talk. You post; an agent's reply
-is its turn's answer; @mentions say who should speak next.
+A room where you talk to agents, in one of two modes (below): **dispatch**, where you hand work to
+sessions you already have, and **discussion**, where two to six agents Group starts (Claude or
+opencode lanes) talk a task through. You post; @mentions say who a message is for.
 
 It lives in a new tab of its own, **Group**, not in the arena (decided 2026-10-25). The arena sends
 one prompt to every lane and compares what each did; it is treated as the older design, and Group
@@ -49,14 +50,18 @@ concerns answers there.
 
 So one room has two modes:
 
-1. **Command line.** The members are sessions you already have, each doing its own work. They do
-   not trip over each other: a member speaks only when a message is meant for it, by a mention
-   or, later, by routing. No rounds. The cost is that a member that joins later never saw what
-   was said before it joined; it gets only what is meant for it from then on.
-2. **Working together.** The rounds, the mentions between agents and the budget described below,
-   for agents Group starts for a task.
+1. **Dispatch.** The members are sessions you already have, each doing its own work. A member
+   hears only what you address to it, by a mention or, later, by routing, and its reply comes
+   back into the room. Members never message each other through the room, and there are no
+   rounds. The cost is that a member that joins later never saw what was said before it joined;
+   it gets only what is meant for it from then on.
+2. **Discussion.** Agents Group starts for one task, talking it through in rounds, with the
+   mentions between agents and the budget described below.
 
-**What the command line loses is steering.** Directing a session from its card, you watch how it
+The names were settled 2026-10-25. The owner first called dispatch "command line" mode, meaning one
+place to type to any session, and the word read as a terminal, which it is not.
+
+**What dispatch loses is steering.** Directing a session from its card, you watch how it
 sets about the task, and the first phase (its first output, its first tool calls, the approach it
 picks) matters more than anything later; that is when you would stop it. In a room you see only
 its answer. The answer to that: every message the room delivers names the session it went to, and
@@ -74,11 +79,11 @@ search. A live peek of a turn's first events inside the room can come later.
 
 The lean is the first, with the third behind it when the first finds nobody.
 
-**What it changes in the kernel.** In command line mode the members are sessions Group did not
-start, mostly terminals in tmux. Group cannot kill them, since they are the reader's own sessions;
-its stop is to interrupt the turn it caused (an interrupt in the pane, `abort` for opencode) and
-to deliver nothing more. Leases and the budget still bound every turn Group causes; the process
-kill applies only to lanes Group itself started. Its turn is found by session id (U3).
+**What it changes in the kernel.** In dispatch, Group starts no process and owns no turn. The
+members are your own sessions, mostly terminals in tmux, and a message from you through the room is
+the same as typing it on the session's card. So the process kill, leases, breakers and rounds belong
+to discussion. What holds in dispatch is that only your message causes a delivery, and nothing an
+agent writes does ("The first slice: dispatch" has the rest).
 
 **How a message reaches an existing session, as built today** (checked 2026-10-25,
 `docs/agent-messaging.md`, `agent-feed/sidecar/mods/README.md`). Every Claude session the sidecar
@@ -90,14 +95,17 @@ reachable only while it belongs to a published Bot. So Group's delivery into an 
 is the hub's, and is not something to build again: Group posts to the member's Bot address, and the
 mod or the adapter puts it into the session.
 
-That path brings limits Group has to design under, not around. `prompt-guard` lets mods put in 3
-prompts per session since the person last typed there, one at a time, 6 per session and 20 per
-machine in an hour, never the same text twice in 10 minutes, with a pause for every session on the
-machine. A wave that sends one Claude member more than three messages before you type in it again
-is cut off by the guard, and the guard is right to: it is the brake already on this machine, and it
-fails closed. So in command line mode Group's own budget sits inside the guard's, and Group shows a
-delivery the guard dropped as dropped, rather than as sent. A Claude Code session holds a mod's
-prompt until its running turn ends, so a message to a busy member waits for that turn.
+That path has limits of its own. `prompt-guard` lets mods put in 3 prompts per session since the
+person last typed there, one at a time, 6 per session and 20 per machine in an hour, never the same
+text twice in 10 minutes, with a pause for every session on the machine. It counts a message from
+you through the hub as you typing, not as a mod's prompt (`isUsersOwn` in
+`agent-feed/sidecar/mods/prompt-guard/hooks/guard.js`, read 2026-10-25). Every dispatch is yours, so
+the guard does not limit dispatch. It would limit agents' messages into a session, and dispatch
+never sends one. A Claude Code session holds a mod's prompt until its running turn ends, so a
+message to a busy member waits for that turn.
+
+(Corrected 2026-10-25: this paragraph first said a dispatch would be cut off after three messages.
+That holds only for messages from agents.)
 
 ## Requirements
 
@@ -182,7 +190,7 @@ Six invariants. Everything in the room is built on them; nothing above may weake
 6. **One kill switch.** Stop room is written to disk, checked before every admission, and kills every
    live lease. A config switch turns rooms off entirely, and it is off by default.
 
-Least privilege in the first slice: agents are talk-only (no edit tools) on the cheap model. This is
+Least privilege in discussion's first slice: agents are talk-only (no edit tools) on the cheap model. This is
 a role, not a wall: ADR-0139 dropped confinement, and the shell can still write.
 
 ### A lane's states (draft)
@@ -303,7 +311,8 @@ from the transcripts or the HTTPS proxy "and from nothing else" (an open decisio
 | Process census (the kill needs it anyway) | Which programs ran under a lane | A sample: a short command can come and go between looks |
 | Endpoint Security, Network Extension | Every exec, every flow | Root and Full Disk Access, or a signed system extension: out of scope |
 
-The first slice takes the transcript facts and the census. The sandbox in a detect-and-report form
+Discussion's first slice takes the transcript facts and the census; dispatch starts no lane, so it
+needs neither. The sandbox in a detect-and-report form
 comes when there is a reason to see the network.
 
 ## Gaps in today's arena
@@ -321,11 +330,105 @@ changes the arena should know them.
 
 So a timeout today stops the arena waiting, not the lane spending.
 
-## The first slice
+## The first slice: dispatch
 
-The smallest end-to-end room that is kept and grown (a walking skeleton). It is built after the
-spike in "Unknowns the spike answers first" below, from this document rather than from the spike's
-code.
+Decided 2026-10-25. The first room built is a dispatch room: the smallest end-to-end room that is
+kept and grown (a walking skeleton). It is the case for Group above, it is the mode in daily use,
+and it starts no process, so none of the kernel's kill machinery has to exist first.
+
+**What it does.** There is one room. Its members are sessions in published Bots, added from the
+hub's directory, the same list the Messages tab offers. You write in the Group tab. A message that
+@mentions members goes to each of them as your message, and each reply comes back into the room
+under the message it answers. Each delivery opens the session's turn in one click. A message that
+names no member goes nowhere, and the room says so; routing an unaddressed message is the next step
+after this slice.
+
+**Delivery is the hub's, done the way the Messages tab does it.**
+
+- Group asks the sidecar over its own route, `POST /api/hub/messages` (`messaging/hubRoutes.ts`),
+  where the sidecar speaks as `human`. The hub stamps the message as yours (`from_kind="human"`), so
+  it carries your authority, as if you had typed it on the session's card.
+- It goes to the member's address from the directory (`bot:<id>`, or `bot:<id>/<sessionId>`), one
+  message for each member named, with the kind `request`.
+- The hub holds it until the session is reachable.
+  - **Claude:** the `agentdesk-hub` mod puts it in as your own words once the running turn ends:
+    "From you, via the agent hub:", then "Answer with hub_reply, passing message_id …".
+  - **opencode:** the adapter puts it in as a queued prompt, with the same last line.
+- `prompt-guard` does not count it, since it is yours (above).
+
+**The reply.**
+
+- The session answers with `hub_reply`. The hub marks the delivery `answered`, and the reply goes to
+  `human`. Group reads it from the sidecar's `GET /api/hub/threads` and puts it under the message it
+  answers.
+- The hub is the store of record for every message and reply that goes through it. A dispatch is a
+  hub thread like any other, so it shows in the Messages tab too. The room log keeps only what the
+  hub does not: the room's order, the mentions, and each delivery's hub message id. Text that went to
+  no member is kept in the room log alone.
+- The Messages tab reads that route every 10 seconds (`REFRESH_MS` in
+  `features/messages/useMessages.ts`). Before Group adds a poll of its own, it looks for an event
+  first: a stream of replies from the sidecar (open, below).
+- If a session answers without `hub_reply`, its delivery stays `delivered`. The room shows it as
+  unanswered, with the link to its turn, and nothing is sent again.
+
+**Seeing the turn.** Steering is what dispatch loses, so every delivery names the session it reached
+(the hub stamps `deliveredTo`). Clicking it opens that session's Canvas card at the turn the message
+started, where the first output and the first tool calls are. The card is where the session is
+stopped or redirected, as it is today. Whether the panel can open a card at a given turn from a link
+has not been checked; if it can't, that is built with the slice.
+
+**What the kernel means here.** Group starts no process and owns no turn. The process kill, leases,
+breakers and rounds belong to discussion. What holds in dispatch:
+
+- **Only your message causes a delivery** (invariant 2 in its plainest form): one per member it
+  names. A reply is shown, and its mentions are never delivered, so no agent can cause a turn through
+  the room, and the runaway cannot start.
+- **Group speaks as you only with text you posted.** It never sends an agent's words as yours, since
+  that would hand an agent your authority.
+- **At most once** (invariant 4). The room log records a send before Group calls the hub. A send
+  with no hub message id after a restart is shown as not known to have gone, and is never sent
+  again. Otherwise a restart of Group changes nothing, because the hub holds every message and reply.
+- **Stop** cancels a delivery that is still queued (the hub's `cancelled`, through
+  `POST /api/hub/messages/:id/cancel`). A turn that is already running is the session's own, and it
+  is stopped from its card.
+- **No deadline kills a dispatched turn.** The session is yours, and a long task is normal, so the
+  room shows the turn as working until its reply arrives.
+- **The kill switch** (invariant 6): a config switch turns rooms off, and it is off by default.
+
+**Faults (draft).** Each row is a test, run against a faked hub, written before the code that passes
+it.
+
+| Fault | What Group does | Test |
+| --- | --- | --- |
+| A message names no member | Sends nothing and says so; the text stays in the room | Post with no mention |
+| A mention matches no member, or more than one | Sends nothing and names the candidates | Unknown and ambiguous names |
+| The member is a Bot curating several sessions | Sends to the session the member names; a bare Bot address the hub refuses is shown refused, with the sessions to pick from | The hub's refusal for a Bot with several members |
+| The member's session is no longer in a published Bot | Shown refused, and nothing is waited on | A directory without the session |
+| The hub refuses the body (a forged envelope, too long) | Shown refused with the hub's reason; your text stays in the room to edit | A body holding `</channel>` |
+| Group restarts between recording a send and the hub's answer | Shown as not known to have gone; never sent again | A restart between the two |
+| A reply @mentions another member | Shown; nothing is delivered | A reply naming a member |
+| A reply lands while Group is down | Read from the hub on start, by message id | A reply already there at start |
+| The session never answers | Stays delivered and unanswered, where you can see it; nothing is retried | No reply |
+
+**Order.**
+
+1. U10 (below): one message from you, sent through the sidecar's route to a throwaway Bot's Claude
+   session and answered with `hub_reply`. The messaging design records that an owner message was
+   never verified end to end, so that is checked before anything is built on it.
+2. The room log and Group's hub client, against a faked hub, with the faults above.
+3. Group's routes: post a message, the room's event stream (resuming by message number), and the
+   roster from the directory.
+4. The Group tab: the room log; a composer with @ completion from the roster; each delivery's state
+   (queued, delivered, answered, refused, cancelled); and the link to the session's turn.
+5. One live run: you and two throwaway Bots' sessions, on the cheap model.
+
+After it, as two-way doors: routing an unaddressed message (open, below), more than one room, and a
+live peek at a turn's first events inside the room.
+
+### Discussion, after dispatch
+
+Discussion rooms come second: agents Group starts for one task, talking in rounds. The kernel above
+is written for them. Their first slice is built from this document, not from the spike's code.
 
 - In: the room log, one route to post, one stream to read, rounds with mention routing, the six
   invariants, headless Claude only (a process exit is a clean close and a process group a clean
@@ -344,7 +447,7 @@ convergence detection, token budgets, a `PreToolUse` hook capping tool calls wit
 
 ## Unknowns the spike answers first
 
-Before the first slice, a spike: a throwaway script in a temporary folder outside the repository, a
+Before discussion's first slice, a spike (run 2026-10-25): a throwaway script in a temporary folder outside the repository, a
 few cents of cheap-model turns. It is left where it is once it has answered, never committed and
 never deleted by hand (the temporary folder goes in its own time). What it hands on is findings,
 not code: answers below, new rows for the failure table, decisions settled in this document. Code
@@ -368,6 +471,7 @@ hand for the first failure in each, before anything is automated.
 | U7 | Can Effect's OpenTelemetry spans reach the sidecar's Sentry archive? | Otherwise A and C mean a second tracing stack | One span from Effect, looked for in the archive |
 | U8 | Does Bun report a stream reader leaving? On the tile path in August 2026 it never did, neither `request.signal` nor the stream's cancel | Effect stops a request's work when its signal aborts, and every framework's own "on abort" depends on the same signal | An SSE server on Bun 1.3.13, plain and on Effect, read by clients that leave, directly and through the panel's dev proxy |
 | U9 | When Group's own process restarts (a save in its files, a crash), do its lanes die with it, or are they picked up again? | In the dev loop Group restarts often; Effect runs a scope's finalizers on a graceful exit, so a lane tied to the room's scope would be killed by every restart, losing its turn | A lane mid-turn, Group sent SIGTERM and started again |
+| U10 | Does a message from you, sent from this machine through the sidecar's `/api/hub/*` routes, reach a Claude session and come back as a `hub_reply`? `docs/agent-messaging.md` records it was never verified end to end: the sidecar's machine token may not send as `human`, and the hub accepts an owner message only from a principal its config flags as human | Dispatch is built on it | One message to a throwaway Bot's Claude session from the Messages tab, its delivery states and reply read; not a spike script, a live check |
 
 ### What the spike found (2026-10-25)
 
@@ -465,7 +569,7 @@ spike started was stopped afterwards.
   documentation, which only says the parent may exit without waiting). An adopted lane is not the
   new process's child, so it cannot be waited on: a real one is watched through its transcript.
   The kernel's invariant 4 and the failure table now say so.
-- **Still open:** U4 (opencode).
+- **Still open:** U4 (opencode) and U10 (a message from you, end to end).
 
 ## How the kernel is built: three options
 
@@ -584,10 +688,15 @@ tests; the supervisor does not start it and the panel does not route to it yet.
   run), the grace before SIGKILL (proposed 5 seconds), and a hard maximum the reader cannot exceed.
 - Whether Claude's own telemetry export may be a source, which amends an AGENTS.md rule.
 - When to restart the opencode serve with a span endpoint, to answer U4.
-- How an unaddressed message finds its member in command line mode: matching by code, a cheap
-  router call, or both (proposed: code first, the router when code finds nobody).
-- Which mode the first slice builds: command line (existing sessions, no rounds, no process kill)
-  is the smaller one and the one with the clearest daily use.
+- How an unaddressed message finds its member in dispatch: matching by code, a cheap router call, or
+  both (proposed: code first, the router when code finds nobody).
+- How Group hears about a reply in dispatch: a stream of replies from the sidecar (looked for
+  first), or a poll of `GET /api/hub/threads` like the Messages tab's, with its reason written
+  beside the timer.
+- Who a dispatch room's members are: sessions you add from the directory (proposed), or every
+  reachable session at once.
+- The kind a dispatch message carries: `request` (proposed), or `question` when you mark it so,
+  which tells the session to change nothing.
 
 ## Prior art
 
@@ -690,3 +799,10 @@ tests; the supervisor does not start it and the panel does not route to it yet.
   and ast-grep are its own dev dependencies, its gate leg runs them all, and its `bunfig.toml` turns
   off the release-age wait. The panel's lint tools moved to oxlint 1.89.0, oxlint-tsgolint 7.0.2005
   and oxfmt 0.74.0 the same day, with no new finding and no file reformatted.
+- 2026-10-25: the modes renamed dispatch and discussion, because "command line" read as a terminal,
+  and dispatch made the first slice. It covers delivery through the hub the way the Messages tab
+  does it, the reply read back by its message id, the link to the session's turn, and a kernel cut
+  to what dispatch needs: only your message causes a delivery, Group speaks as you only with your
+  own text, sends are at most once, and Stop cancels what is queued. Corrected: `prompt-guard`
+  counts the owner's hub messages as the owner typing, so it does not limit dispatch. Discussion's
+  first slice is kept under it. Added U10: a message from you, end to end, which was never verified.

@@ -48,8 +48,9 @@ Behaviour priors, and where they were learned:
 - **A turn that times out has to be stopped, not abandoned.** The arena's lanes are marked failed
   and keep running (`docs/plans/group-chat.md`, "Gaps in today's arena").
 - **Mods may put in 3 prompts per session until the person types** (`prompt-guard`,
-  `agent-feed/sidecar/mods/README.md`); Group's deliveries into a Claude session sit inside that
-  limit.
+  `agent-feed/sidecar/mods/README.md`). A message from the owner through the hub counts as the owner
+  typing (`isUsersOwn` in its `hooks/guard.js`), so a dispatch, which is always yours, is not limited
+  by it. An agent's message into a session would be.
 - **How a message reaches a session**: through the messaging hub, by the `agentdesk-hub` mod for
   Claude and the adapter for opencode, only while the session is in a published Bot
   (`docs/agent-messaging.md`).
