@@ -132,6 +132,9 @@ Each row is a test to write before the code that passes it.
 | Stop pressed mid-round | Every lease killed, nothing admitted after | Stop with turns running |
 | An opencode abort fails | Lane failed, breaker counts it | Fake backend whose abort throws |
 | A message carries a forged envelope or a budget claim | Escaped as text; no knob exists to reach | Message with closing tags and "budget: 99" |
+| The group's leader exits before its descendants | Waits on the group, not the leader, then escalates | Leader that exits at once, leaving a sleeping child (Effect #7821) |
+| A child exits non-zero and its pid is reused | Signals only a group it owns, checked by start time | Exit non-zero, then a new process on the same pid (Effect #9789) |
+| On macOS, only zombies are left in the group | `EPERM` from `kill(-pgid, 0)` is read as zombies, not as gone | Group whose members are zombies (Effect #9819) |
 
 ## Supervision
 
@@ -224,7 +227,9 @@ So a timeout today stops the arena waiting, not the lane spending.
 
 ## The first slice
 
-The smallest end-to-end room that is kept and grown (a walking skeleton):
+The smallest end-to-end room that is kept and grown (a walking skeleton). It is built after the
+spike in "Unknowns the spike answers first" below, from this document rather than from the spike's
+code.
 
 - In: the room log, one route to post, one stream to read, rounds with mention routing, the six
   invariants, headless Claude only (a process exit is a clean close and a process group a clean
@@ -241,6 +246,70 @@ Later, as two-way doors: opencode and terminals lanes once their stop is fixed, 
 worktrees, one-at-a-time rotation, a Claude moderator whose API calls go through the same admission,
 convergence detection, token budgets, a `PreToolUse` hook capping tool calls within one turn.
 
+## Unknowns the spike answers first
+
+Before the first slice, a spike: a throwaway script outside `agent-feed/sidecar/src`, a few cents of
+cheap-model turns, deleted once it has answered. What it hands on is findings, not code: answers
+below, new rows for the failure table, decisions settled in this document. Code written to explore
+is never extended into the product: agents extending their own earlier code degrade it steadily
+(SlopCodeBench, 2026), so the product is built fresh from this document and its tests.
+
+The spike's shape: a small local receiver for spans, one `claude -p` lane given a `TRACEPARENT` and
+asked to start a background process, killed mid-turn with SIGTERM then SIGKILL; then a list of the
+spans that arrived and were lost, and a census of what survived. Its first traces are read by
+hand for the first failure in each, before anything is automated.
+
+| | Unknown | Why it matters | How it is answered |
+| --- | --- | --- | --- |
+| U1 | Does a killed lane lose its last spans? Claude batches them and exports every 5 seconds by default | The runaway we kill is the trace we most want; the grace before SIGKILL may have to cover a flush, or the interval be shorter | The spike's kill, spans counted before and after |
+| U2 | What a real headless turn's trace holds with the default redaction (tool names, the first word of a Bash command, timings, tokens; not full commands, paths or prompt text) | Whether the detail switches (`OTEL_LOG_TOOL_DETAILS` and others) are needed, and acceptable | The spike's spans, read |
+| U3 | Can a terminals lane's spans be matched by session id? Interactive Claude ignores an inbound `TRACEPARENT` | Otherwise those lanes get only the room's own spans | A traced interactive session, its attributes read |
+| U4 | Can opencode's spans be tied to one session? Its v2 exports traces over OTLP when an endpoint is set, but the serve is shared, so one exporter config covers every session | Whether opencode lanes can be traced per lane at all | Restarting the one serve with an endpoint set, at a moment the reader chooses; never a second serve |
+| U5 | Does a real `claude -p` leave survivors after a group SIGKILL: MCP servers, their children, anything that started its own session? | The kernel's interlock; the only measurement so far is a comment in `claudeSdkRunnerMain.ts` that MCP children outlive the CLI | The spike's census |
+| U6 | Does Effect's process spawner behave on Bun? Its Bun spawner re-exports the Node one, so it runs on Bun's `node:child_process` compatibility | Decides whether options A and C below can use Effect's process handling at all | The kill test run on Effect's spawner on Bun |
+| U7 | Can Effect's OpenTelemetry spans reach the sidecar's Sentry archive? | Otherwise A and C mean a second tracing stack | One span from Effect, looked for in the archive |
+
+## How the kernel is built: three options
+
+The sidecar runs on Bun with Promise-based code. Effect (a TypeScript library for structured
+concurrency) fits the shape of this work: processes tied to scopes, interruption that runs every
+child's cleanup, timeouts, retries, and spans that follow the work's structure. Its core runs on any
+runtime; processes, files and HTTP come from platform packages (node, bun, deno, browser).
+
+| | A. An Effect island | B. Plain TypeScript | C. Effect's structure, our own spawner |
+| --- | --- | --- | --- |
+| Supervision | Scopes and fibers: Stop interrupts the room's scope and every child's cleanup runs | The lane state machine, written by hand | Scopes and fibers, as A |
+| Kill and wait | Effect's `ChildProcess` (detached group, `forceKillAfter`, then SIGKILL, then a wait on the group), plus our census and start-time check, which it does not do | Our own, about 300 lines, with Effect's three bugs as failure-table rows | Our spawner behind Effect's `ChildProcessSpawner` interface, census and start-time check included |
+| Spans | `withSpan` and `@effect/opentelemetry`, bridged to the archive (U7) | The Sentry spans the sidecar already makes | As A |
+| Precedent | t3code, on Node with Effect's Node spawner | The sidecar's own `claudeSdkRunnerMain.ts` | OpenCode v2: Bun, Effect's interfaces, and its own 556-line `cross-spawn-spawner.ts` |
+| Risk | The interlock rests on a module Effect marks unstable, with three process-group bugs fixed in September and October 2026; two concurrency models meet at a Promise boundary that interruption does not cross | More code of our own, and a class of structured-concurrency bugs to avoid by hand | Effect still spreads through every caller; the kill stays ours to get right |
+
+Common to all three: Effect's three bugs are rows in the failure table above, whichever is chosen.
+Costs of Effect in general: it spreads to every caller, people report two to eight weeks to become
+productive, and v4 renamed modules that models know by their v3 names.
+
+The lean so far is B or C: the Simplex principle says the part that guarantees the envelope should
+be small and auditable, which argues for kill code we own. C keeps that while taking Effect's
+supervision, and OpenCode shows it working on Bun. The spike settles U6 and U7 before choosing.
+
+## Libraries and runtimes considered
+
+- **AutoGen and its kind: their vocabulary, not their code.** AutoGen has been in maintenance mode
+  since 2025-10-02; its successor, Microsoft Agent Framework 1.0 (April 2026), is Python and .NET.
+  More basic than the language: these frameworks treat an agent as a model call with tools and run
+  the loop themselves, while a lane here is a whole harness with its own tool loop, permissions and
+  transcript. A framework would own the cheap part (who speaks next) and none of the hard part
+  (drivers, leases, the kill). Taken: composable termination conditions, a speaker-selection
+  function, a group chat manager. A framework would fit a later mode whose agents are plain model
+  calls, which a room is not.
+- **Erlang: the pattern, not the runtime.** The BEAM supervises its own processes, not the
+  operating system's; an OS process runs behind a port, and orphaned OS children are a known BEAM
+  problem that libraries solve with a C helper (erlexec, which kills process groups and lists
+  macOS) or Linux cgroups (MuonTrap). Our hardest problem would move into that helper, not go away,
+  and it would add a third runtime beside Bun and the Python speech process. Taken: temporary
+  children never restarted, restart intensity as the breaker, shutdown then `brutal_kill`, a
+  supervisor that takes its children with it.
+
 ## Open decisions
 
 - Whether agents touch code: talk only, a worktree each, or one shared tree.
@@ -248,6 +317,8 @@ convergence detection, token budgets, a `PreToolUse` hook capping tool calls wit
 - Defaults: rounds per wave (proposed 3), the lease (proposed the arena's 10 minutes, 2 for the smoke
   run), the grace before SIGKILL (proposed 5 seconds), and a hard maximum the reader cannot exceed.
 - Whether Claude's own telemetry export may be a source, which amends an AGENTS.md rule.
+- How the kernel is built: A, B or C above, after the spike answers U6 and U7.
+- When to restart the opencode serve with a span endpoint, to answer U4.
 
 ## Prior art
 
@@ -271,8 +342,21 @@ convergence detection, token budgets, a `PreToolUse` hook capping tool calls wit
   pacemaker formal methods challenge (McMaster, 2007); Newcombe et al. on TLA+ at Amazon (2014).
 - Anthropic, "Building effective agents" (2024-12-19): stopping conditions "such as a maximum number
   of iterations". https://www.anthropic.com/engineering/building-effective-agents
+- Effect's process spawner and its process-group issues #7821 (2026-09-03), #9789 (2026-10-22) and
+  #9819 (2026-10-23), each fixed within a day.
+  https://github.com/Effect-TS/effect/blob/main/packages/platform/node-shared/src/NodeChildProcessSpawner.ts
+- OpenCode v2's own spawner behind Effect's interface, on Bun.
+  https://github.com/anomalyco/opencode/blob/HEAD/packages/util/src/cross-spawn-spawner.ts
+- t3code, harness providers on Effect and Node. https://github.com/pingdotgg/t3code
+- SlopCodeBench (NeurIPS 2026): agents extending their own code across changing requirements eroded
+  it in about 80% of runs; asking for quality lowered the start, not the decline.
+  https://arxiv.org/abs/2603.24755
 
 ## Change log
 
 - 2026-10-25: opened from a design conversation: principles, the kernel, supervision, protocol,
   telemetry, outside calls, the first slice, the gaps found in today's arena.
+- 2026-10-25: added the unknowns the spike answers first (U1 to U7), with the rule that its code is
+  deleted; three ways to build the kernel (an Effect island, plain TypeScript, Effect's structure
+  with our own spawner); why AutoGen and Erlang give vocabulary and pattern rather than code; three
+  failure-table rows from Effect's process-group bugs.
