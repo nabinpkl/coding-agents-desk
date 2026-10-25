@@ -144,47 +144,6 @@ describe("event heading", () => {
     expect(folded.getByLabelText("expand event")).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("separates Nice tool and text rows into tightly spaced cards", () => {
-    const view = renderRow(
-      <>
-        <SegmentEventRow
-          ev={event({ type: "assistant", blocks: [{ kind: "text", text: "answer body" }] })}
-          ctx={NICE_CTX}
-          isFirst
-          isLast={false}
-          isCollapsed={false}
-          onToggle={() => {}}
-          isHighlighted={false}
-        />
-        <SegmentEventRow
-          ev={event({
-            index: 8,
-            blocks: [{ kind: "tool_use", tool: "Read", summary: "Read file", callId: "call-1" }],
-          })}
-          ctx={NICE_CTX}
-          isFirst={false}
-          isLast
-          isCollapsed={false}
-          onToggle={() => {}}
-          isHighlighted={false}
-        />
-      </>,
-    );
-
-    const textCard = view.container.querySelector('[data-feed-card="text"]');
-    const toolCard = view.container.querySelector('[data-feed-card="tool"]');
-    expect(textCard?.className).toContain("rounded-md");
-    // The two row surfaces are named rather than painted, so a session inside a shaded Bot card
-    // can hand them its colour and every other reader of this feed gets the grey they always had.
-    expect(textCard?.className).toContain("session-view-row");
-    expect(toolCard?.className).toContain("rounded-md");
-    expect(toolCard?.className).toContain("session-view-row-tool");
-    expect(textCard?.className).not.toContain("border-dashed");
-    expect(toolCard?.className).not.toContain("border-dashed");
-    expect(textCard?.parentElement?.className).toContain("py-[0.1em]");
-    expect(toolCard?.parentElement?.className).toContain("py-[0.1em]");
-  });
-
   it("gives Nice feed cards a gutter that is a share of the column, not a fixed 24px", () => {
     const view = renderRow(
       <>

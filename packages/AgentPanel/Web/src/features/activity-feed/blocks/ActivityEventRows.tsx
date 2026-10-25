@@ -1,8 +1,8 @@
 "use client";
 
-import { ChevronDown, ChevronRight, GitBranch } from "lucide-react";
+import { ChevronDown, GitBranch } from "lucide-react";
 import { RawDetails, ScratchBriefDrawer } from "@/features/activity-feed/blocks/ActivitySystemBlocks";
-import { type DisplayRole, clusterLabel, displayRole } from "@/features/activity-feed/rows/activityDisplayItems";
+import { type DisplayRole, displayRole } from "@/features/activity-feed/rows/activityDisplayItems";
 import { eventPreview, isFlowBlock, messageText, toolIntent } from "@/features/activity-feed/rows/activityEventText";
 import { RowMenu } from "@/features/bots/menus/RowMenu";
 import {
@@ -23,6 +23,7 @@ import {
 
 // Re-exported: the feed reaches for every row through this module.
 export { CompactionRow } from "@/features/activity-feed/blocks/CompactionRow";
+export { ClusterRow } from "@/features/activity-feed/rows/ClusterRow";
 
 // Re-exported: the feed and its tests reach for the role label through the rows.
 export {
@@ -65,6 +66,16 @@ export interface EventRowContext {
   onForkFromMessage?: (message: { eventId: string; text: string }) => void;
 }
 
+/** A tool call inside an assistant row, on the card a tool row has, or passed through as it is. */
+function ToolCard({ lifted, children }: { lifted: boolean; children: React.ReactNode }) {
+  if (!lifted) return children;
+  return (
+    <div className="rounded-md border border-border px-[0.6em] py-[0.3em] session-view-row-tool" data-feed-card="tool">
+      {children}
+    </div>
+  );
+}
+
 /**
  * What a collapsed event shows next to its chip.
  *
@@ -103,6 +114,9 @@ function EventBody({
   bareHeading: boolean;
 }) {
   const { inline, folded, hasRawJson } = partitionEventBlocks(ev);
+  // An assistant row has no card in Nice (`SegmentEventRow`), so a call made in the same message
+  // draws its own: on the bare ground it would read as one more line of what the agent said.
+  const toolCards = ctx.session.mode === "nice" && displayRole(ev) === "assistant";
   return (
     <div className="space-y-[0.4em]">
       {inline.map(({ block, index, images }, position) => (
@@ -121,15 +135,17 @@ function EventBody({
             besideHeading && isFlowBlock(block) ? undefined : bareHeading && position === 0 ? "flow-root" : "clear-left"
           }
         >
-          <Block
-            b={block}
-            ctx={ctx}
-            eventIndex={ev.index}
-            blockIndex={index}
-            eventType={ev.type}
-            phase={ev.phase}
-            resultImages={images}
-          />
+          <ToolCard lifted={toolCards && block.kind === "tool_use"}>
+            <Block
+              b={block}
+              ctx={ctx}
+              eventIndex={ev.index}
+              blockIndex={index}
+              eventType={ev.type}
+              phase={ev.phase}
+              resultImages={images}
+            />
+          </ToolCard>
         </div>
       ))}
       <div className="clear-left">
@@ -363,10 +379,22 @@ export function SegmentEventRow({
 }) {
   const role = displayRole(ev);
   const isNice = ctx.session.mode === "nice";
-  const niceCardKind = role === "tool" || role === "result" ? "tool" : "text";
+  // What the agent said is the transcript itself, so it runs on the transcript's ground with no
+  // card. A card says "this is a separate object", and on every row it said nothing: prose,
+  // tools and reasoning all came out as the same stack of boxes. Now only the things beside the
+  // prose -- tool calls, their results, reasoning, system notes -- are lifted off it.
+  const niceCardKind = role === "tool" || role === "result" ? "tool" : role === "assistant" ? "plain" : "text";
   const wrapperClass = isNice
-    ? "rounded-md border px-[0.6em] py-[0.3em] transition-shadow duration-300 " +
-      (niceCardKind === "tool" ? "border-border session-view-row-tool " : "border-border/60 session-view-row ") +
+    ? // A plain row keeps the card's padding and a transparent edge, so its text starts on the
+      // same column as the text inside the cards around it.
+      "rounded-md border px-[0.6em] py-[0.3em] transition-shadow duration-300 " +
+      (niceCardKind === "tool"
+        ? "border-border session-view-row-tool "
+        : niceCardKind === "plain"
+          ? ev.pending === "queued"
+            ? "border-border/60 "
+            : "border-transparent "
+          : "border-border/60 session-view-row ") +
       // Not taken in yet: the same card, its edge drawn dashed until the transcript holds it.
       (ev.pending === "queued" ? "border-dashed " : "") +
       (isHighlighted ? "ring-2 ring-primary ring-inset " : "")
@@ -436,52 +464,5 @@ export function LiveTailRow({
       // A queued prompt is not streaming: it says so with its own chip instead.
       isLive={ev.pending !== "queued"}
     />
-  );
-}
-
-/**
- * A folded run of tool work, as one row.
- *
- * Tool calls and their output are the bulk of a transcript -- 54 of every 100 rows in
- * this project's largest Codex session -- and almost none of them is what a viewer
- * scrolling back is looking for. Folding a run into one line is what puts prose and
- * reasoning within a screen of each other again. A skill activation or a delegation
- * is never inside one: those change what the agent is doing, and hiding them would
- * hide the line that explains the next twenty.
- */
-export function ClusterRow({
-  events,
-  isFirst,
-  isLast,
-  onExpand,
-}: {
-  events: ActivityEvent[];
-  isFirst: boolean;
-  isLast: boolean;
-  onExpand: () => void;
-}) {
-  const wrapperClass =
-    "border-x border-border session-view-row-tool px-[0.6em] " +
-    (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
-    (isLast ? "rounded-b-md border-b pb-[0.4em] " : "pb-[0.3em] ") +
-    (!isLast ? "border-b border-dashed border-border/60 " : "");
-  return (
-    <div
-      className={COLUMN_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-    >
-      <div className={wrapperClass}>
-        <button
-          type="button"
-          onClick={onExpand}
-          aria-expanded={false}
-          title={`Expand ${events.length} folded steps`}
-          className="flex w-full items-center gap-[0.4em] text-left transition-colors hover:bg-foreground/5"
-        >
-          <ChevronRight className="size-[1.1em] shrink-0 text-muted-foreground" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-muted-foreground">{clusterLabel(events)}</span>
-        </button>
-      </div>
-    </div>
   );
 }
