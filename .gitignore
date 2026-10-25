@@ -116,11 +116,21 @@ terminal/emulator/Package.resolved
 # views can run into the tens of MB with embedded data.
 graphify-out/
 
-# Upstream opencode, shallow-cloned as a read-only reference for mirroring the TUI
-# (its slash-command list, its keymap, its submit rules). Never built, never
-# imported; regenerate at the version the panel mirrors with:
-#   git clone --depth 1 --branch v2.0.16 --single-branch \
-#     https://github.com/anomalyco/opencode.git .reference/opencode
+# Upstream projects, full git clones kept as read-only references: never built,
+# never imported, never linted by this repo's gate. Both are MIT; a piece brought
+# in verbatim keeps its copyright line and licence beside it, as
+# `claude-sdk/claudeSdkRunnerMain.ts` does for t3code. Their lint setups are worth
+# reading too: opencode's ast-grep rules for Effect patterns, t3code's oxlint plugin.
+#
+#   .reference/opencode  the panel mirrors its TUI (slash commands, keymap, submit
+#                        rules) at tag v2.0.16: `git -C .reference/opencode show
+#                        v2.0.16:<path>` reads that version from the latest clone.
+#   .reference/t3code    harness providers and process supervision on Effect.
+#
+# Recreate with:
+#   git clone https://github.com/anomalyco/opencode.git .reference/opencode
+#   git clone https://github.com/pingdotgg/t3code.git .reference/t3code
+# and bring them up to date with `git -C .reference/<name> pull`.
 .reference/
 
 # taste:frontend-layout-sweep keeps a local record of the last full run here

@@ -237,8 +237,8 @@ export async function listOpencodeServeCommands(): Promise<OpencodeSlashCommand[
  * one rename -- the row and the dialog reach the same serve PATCH.
  *
  * Read the list against a checkout rather than against this comment when it needs checking: the
- * reference clone at `.reference/opencode` is the upstream tree (see `.gitignore`), and
- * `git clone --depth 1 --branch v2.0.16` puts it back.
+ * reference clone at `.reference/opencode` is the upstream tree (see `.gitignore`), and the list
+ * mirrors its tag v2.0.16 (`git -C .reference/opencode show v2.0.16:<path>`).
  *
  * One row says more than the panel does. `/fork` carries the web client's own description, which
  * promises a session from a PREVIOUS MESSAGE, and the panel forks the whole history -- the
