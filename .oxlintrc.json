@@ -169,6 +169,96 @@
         "**/AgentPanel/Web/src/features/desktop-viewer/trackpad/useScrollStripGestures.ts"
       ],
       "rules": { "eslint/no-restricted-imports": "off" }
+    },
+    {
+      // The sidecar does not use chokidar. It holds a native watch per FILE in a directory it
+      // watches and closes that watch when the file goes, and under Bun on macOS a watch `close()`
+      // can park the main thread on a lock the File Watcher thread is parked on too: the process
+      // then runs nothing again, timers included. Measured 2026-10-19 by sampling hung test runs,
+      // about one run in 400 stopped inside chokidar's `_closeFile` for a lock file `BotStore` had
+      // just removed; the live sidecar wedged the same way on 2026-09-09 and 2026-10-02. The panel's
+      // effect ban above does not apply here: the sidecar has no React.
+      "files": ["**/agent-feed/sidecar/src/**"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "chokidar",
+                "message": "Watch with watchTree (src/transcripts/catalog/watchTree.ts) or repositoryEvents, and never close the watch."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // No sidecar test waits on the clock: a fixed wait is a guess about how fast the machine is.
+      // Measured 2026-10-19: run beside the panel's suite, two tests that waited 10ms for the Bot
+      // registry failed; under `bun test --parallel` a different one failed on each run; and the
+      // suite spent about 37 of its 45 seconds in 107 tests that mostly sat out timers. A test
+      // waits for what it expects instead (`until` and `drained` in `src/testing/until.ts`), or
+      // runs on fake time (`jest.useFakeTimers()`) when the code under test owns the timer. Tests,
+      // harnesses and fixtures; the chokidar ban is restated because these settings replace the
+      // override above for these files.
+      "files": [
+        "**/agent-feed/sidecar/src/**/*.test.ts",
+        "**/agent-feed/sidecar/src/**/*Harness.ts",
+        "**/agent-feed/sidecar/src/**/fixtures/**/*.ts"
+      ],
+      "rules": {
+        "eslint/no-restricted-globals": [
+          "error",
+          { "name": "setTimeout", "message": "Wait for the condition with until or drained (src/testing/until.ts), or use fake timers." },
+          { "name": "setInterval", "message": "Wait for the condition with until or drained (src/testing/until.ts), or use fake timers." }
+        ],
+        "eslint/no-restricted-properties": [
+          "error",
+          { "object": "Bun", "property": "sleep", "message": "Wait for the condition with until or drained (src/testing/until.ts), or use fake timers." },
+          { "object": "globalThis", "property": "setTimeout", "message": "Wait for the condition with until or drained (src/testing/until.ts), or use fake timers." },
+          { "object": "globalThis", "property": "setInterval", "message": "Wait for the condition with until or drained (src/testing/until.ts), or use fake timers." }
+        ],
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "chokidar",
+                "message": "Watch with watchTree (src/transcripts/catalog/watchTree.ts) or repositoryEvents, and never close the watch."
+              },
+              {
+                "name": "node:timers/promises",
+                "message": "Wait for the condition with until or drained (src/testing/until.ts), or use fake timers."
+              },
+              {
+                "name": "node:timers",
+                "importNames": ["setTimeout", "setInterval"],
+                "message": "Wait for the condition with until or drained (src/testing/until.ts), or use fake timers."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The one place a sidecar test may hold a timer: `until` polls on one.
+      "files": ["**/agent-feed/sidecar/src/testing/**"],
+      "rules": {
+        "eslint/no-restricted-globals": "off",
+        "eslint/no-restricted-properties": "off",
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "chokidar",
+                "message": "Watch with watchTree (src/transcripts/catalog/watchTree.ts) or repositoryEvents, and never close the watch."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

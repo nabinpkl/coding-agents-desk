@@ -132,9 +132,9 @@ and rotted from there.
 
 ## A test waits for what it expects, never for a length of time
 
-Settled 2026-10-19. Check 10 of `tools/agent-feed-fitness.sh` refuses `setTimeout`, `setInterval`
-and `Bun.sleep` in any sidecar test, test harness or fixture; `src/testing/until.ts` is the one
-place allowed a timer.
+Settled 2026-10-19. The lint gate (`.oxlintrc.json`, check 8 of `tools/agent-feed-fitness.sh`)
+refuses `setTimeout`, `setInterval` and `Bun.sleep` in any sidecar test, test harness or fixture;
+`src/testing/until.ts` is the one place allowed a timer. A comment or string naming one is fine.
 
 A fixed wait is a guess about how fast the machine is, and it loses on a busy one. Measured that
 day: run beside the panel's suite, two tests that waited 10ms for the Bot registry failed; under
@@ -196,5 +196,5 @@ event" means one of the shapes that survived those, not a new watch per thing:
   runs nothing again, timers included (sampled 2026-10-19 in about one test run in 400; see
   `BotStore`'s `watcher`). Keep it for the life of the process and ignore its events instead. That
   ruled out chokidar, which holds a watch per file and closes it when the file goes -- a close you
-  never wrote. Check 11 of `tools/agent-feed-fitness.sh` refuses it in the sidecar; watch with
+  never wrote. The lint gate (`.oxlintrc.json`) refuses an import of it in the sidecar; watch with
   `watchTree` or `repositoryEvents`.

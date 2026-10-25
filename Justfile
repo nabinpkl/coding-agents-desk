@@ -1326,9 +1326,9 @@ check-legs: agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness te
 #
 # Measured 2026-10-19: the panel's suite is ~45s and the sidecar's ~15-20s, which is what most of a
 # gate is; the typechecks are about a second each. The sidecar's figure is with `bun test --parallel`
-# (its package.json), after every sidecar test stopped waiting on the clock (check 10 of the fitness
-# gate): run one file at a time with its waits it was ~47s. The lever is still not running suites a
-# diff cannot reach. A sidecar-only change runs one leg instead of seven.
+# (its package.json), after every sidecar test stopped waiting on the clock (a lint rule in
+# `.oxlintrc.json`): run one file at a time with its waits it was ~47s. The lever is still not
+# running suites a diff cannot reach. A sidecar-only change runs one leg instead of seven.
 #
 # Conservative in one direction on purpose: a path no leg claims runs everything, because a
 # silently skipped leg is worse than a slow gate. Native paths are reported, never run -- they

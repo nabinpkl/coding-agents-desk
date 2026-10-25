@@ -5,8 +5,8 @@
 // A fixed wait (`Bun.sleep(50)`, a promise around `setTimeout`) is a guess about how fast the
 // machine is. It holds on a quiet machine and loses the race on a busy one. Measured 2026-10-19:
 // with the panel's suite running beside it, two tests that waited 10ms for the Bot registry failed,
-// and with `bun test --parallel` a different test waiting 80ms failed on each run. Check 10 of
-// `tools/agent-feed-fitness.sh` refuses a timer in any test, harness or fixture but this file.
+// and with `bun test --parallel` a different test waiting 80ms failed on each run. The lint gate
+// (`.oxlintrc.json`) refuses a timer in any test, harness or fixture but this file.
 
 import { jest } from "bun:test";
 

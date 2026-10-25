@@ -199,34 +199,4 @@ if ! tools/format.sh --check >/dev/null; then
     fail "files not formatted; run tools/format.sh"
 fi
 
-# 10. No sidecar test waits on the clock: no `setTimeout`, `setInterval` or `Bun.sleep` in a test, a
-#     test harness or a fixture. A fixed wait is a guess about how fast the machine is. Measured
-#     2026-10-19: run beside the panel's suite, two tests that waited 10ms for the Bot registry
-#     failed; under `bun test --parallel` a different one failed on each run; and the suite spent
-#     about 37 of its 45 seconds in 107 tests that mostly sat out timers. A test waits for what it
-#     expects instead -- `until` and `drained` in `src/testing/until.ts`, the one place allowed a
-#     timer -- or runs on fake time (`jest.useFakeTimers()`) when the code under test owns the timer.
-#     Matched as words, so a comment naming one of them fails too; name the idea instead.
-timers="$(grep -rnE '\bsetTimeout\b|\bsetInterval\b|\bBun\.sleep\b' agent-feed/sidecar/src \
-    --include='*.test.ts' --include='*Harness.ts' | grep -v '^agent-feed/sidecar/src/testing/' || true)"
-fixtures="$(find agent-feed/sidecar/src -path '*/fixtures/*' -name '*.ts' -exec grep -nHE '\bsetTimeout\b|\bsetInterval\b|\bBun\.sleep\b' {} + || true)"
-if [ -n "$timers$fixtures" ]; then
-    printf '%s\n' "$timers" "$fixtures" | sed '/^$/d' >&2
-    fail "a sidecar test waits on the clock; wait for the condition with until/drained (src/testing/until.ts) or use fake timers"
-fi
-
-# 11. The sidecar does not use chokidar. It holds a native watch per FILE in a directory it watches
-#     and closes that watch when the file goes, and under Bun on macOS a watch `close()` can park the
-#     main thread on a lock the File Watcher thread is parked on too: the process then runs nothing
-#     again, timers included. Measured 2026-10-19 by sampling hung test runs, about one run in 400
-#     stopped inside chokidar's `_closeFile` for a lock file `BotStore` had just removed; the live
-#     sidecar wedged the same way on 2026-09-09 and 2026-10-02. Watch with `watchTree`
-#     (`src/transcripts/catalog/watchTree.ts`) or `repositoryEvents`, and never close the watch.
-chokidar="$(grep -rnE "['\"]chokidar['\"]" agent-feed/sidecar/src agent-feed/sidecar/package.json \
-    --include='*.ts' --include='*.tsx' --include='package.json' || true)"
-if [ -n "$chokidar" ]; then
-    printf '%s\n' "$chokidar" >&2
-    fail "the sidecar uses chokidar; watch with watchTree or repositoryEvents and never close the watch"
-fi
-
 echo "agent-feed-fitness: OK"
