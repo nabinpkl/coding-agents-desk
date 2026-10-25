@@ -1,4 +1,4 @@
-# Arena group chat
+# Group chat
 
 > Living design, opened 2026-10-25. Nothing here is built. Read against the code: every path and
 > rule below was true on the day it was written.
@@ -20,10 +20,14 @@ This document is meant to change, and then to go out of date.
 
 ## What it is
 
-A room in the arena where you and two to six agents (Claude or opencode lanes) talk. You post; an
-agent's reply is its turn's answer; @mentions say who should speak next. The arena's runs today
-send one prompt to every lane and compare what each did. A room instead lets the lanes answer each
-other.
+A room where you and two to six agents (Claude or opencode lanes) talk. You post; an agent's reply
+is its turn's answer; @mentions say who should speak next.
+
+It lives in a new tab of its own, **Group**, not in the arena (decided 2026-10-25). The arena sends
+one prompt to every lane and compares what each did; it is treated as the older design, and Group
+does not build on its code, records or lanes, so none of its weaker choices carry over. Where an
+idea is shared (lanes, a start line, reading a closed turn's answer), Group takes the idea and
+writes its own.
 
 What makes it different from a traditional group chat: a person in a group chat reads for free and
 is always connected. An agent reads only by taking a turn, which costs money, rate limit and minutes,
@@ -163,22 +167,22 @@ sidecar supervisor     exists (supervisor.ts): restarts the sidecar on saves
 
 Prior art inside the repository: `claude-sdk/claudeSdkRunnerMain.ts` (`spawnProcessGroup`, adapted
 from t3code) already spawns Claude detached and SIGKILLs its group, because MCP servers' children
-outlive the CLI. The stop primitive and the lease belong in a shared module that the arena's
-existing lanes also switch to, not in `arena/`, which is at its twelve-file cap.
+outlive the CLI. The stop primitive and the lease are Group's own, in a directory of its own; the
+arena keeps its lanes as they are.
 
 ## The protocol (class B)
 
-- **The room log** is the one source of truth: an append-only file in the run's folder. Each message
+- **The room log** is the one source of truth: an append-only file in the room's own folder. Each message
   has an author (you or a lane), its text, the mentions read from it, and the next number in the
   room, assigned by the sidecar as its only writer. No wall clocks order it. Lane transcripts stay
   each session's own record.
 - **Each agent has a cursor:** the last number delivered to it. Its next turn gets the messages after
   its cursor, not the whole log; its session already holds the rest.
-- **An agent's message is its turn's answer,** read off the closed turn as passes already do
-  (ADR-0152). Mentions are read from the text by code. "Pass" is silence. Nothing has to be called
+- **An agent's message is its turn's answer,** read off the closed turn (the arena's passes do the
+  same, ADR-0152; the idea, not the code). Mentions are read from the text by code. "Pass" is silence. Nothing has to be called
   to post, so there are no per-message permission prompts.
 - **Rounds:** your message opens a wave. In round 1, every agent you addressed answers in parallel
-  (the start line the arena already has). In each later round, only agents mentioned in the round
+  (a start line, as the arena's runs have). In each later round, only agents mentioned in the round
   before speak. The wave ends when nobody is mentioned, when an agent says done, or when the budget
   runs out.
 - **Coalescing:** however many messages mention a busy agent, it gets them as one batch at its next
@@ -223,7 +227,9 @@ comes when there is a reason to see the network.
 
 ## Gaps in today's arena
 
-Found while designing this; they are bugs whether or not a room is built.
+Found while designing this; they are bugs whether or not a room is built. Recorded, not fixed here:
+the arena is treated as the older design, and Group does not depend on its lanes. Whoever next
+changes the arena should know them.
 
 - A headless Claude lane's timeout sends SIGTERM to `claude` alone, with no SIGKILL after, and leaves
   whatever it started (`arena/contestants/claudeContestant.ts`, the timer in `runClaudeContestant`).
@@ -401,3 +407,6 @@ supervision, and OpenCode shows it working on Bun. The spike settles U6 and U7 b
   group the census finds, since Claude's Bash tool runs in groups of its own, and keeps SIGTERM
   first because that is when Claude cleans up and flushes. Three failure-table rows, and a note that
   events carry the account's identity.
+- 2026-10-25: Group gets a tab of its own instead of living in the arena, which is treated as the
+  older design: Group takes ideas from it, never code or records. The document moved from
+  `arena-group-chat.md` to `group-chat.md`.
