@@ -35,6 +35,53 @@ and it takes one turn at a time. So the agent is closer to a worker with a mailb
 client, and the design is a scheduling problem with a runaway to prevent: three agents replying to
 each other grow without bound.
 
+## Why Group: one hop to the sessions you already have
+
+Recorded 2026-10-25 as the case for Group. It is an idea to explore, and it may not survive contact;
+it is written down so the reason is not lost if it does not.
+
+Today, handing work to a session that already owns it (say, the one handling the site's
+performance) is two hops either way: find its card on the Canvas, then message it; or tell the
+Father (the one session per machine kept in a floating window) and let it relay, which costs the
+Father a turn to decide and another to pass it on. In a room it is one hop: a message with
+`@name`, or with no mention at all ("who is looking after site performance?"), and the session it
+concerns answers there.
+
+So one room has two modes:
+
+1. **Command line.** The members are sessions you already have, each doing its own work. They do
+   not trip over each other: a member speaks only when a message is meant for it, by a mention
+   or, later, by routing. No rounds. The cost is that a member that joins later never saw what
+   was said before it joined; it gets only what is meant for it from then on.
+2. **Working together.** The rounds, the mentions between agents and the budget described below,
+   for agents Group starts for a task.
+
+**What the command line loses is steering.** Directing a session from its card, you watch how it
+sets about the task, and the first phase (its first output, its first tool calls, the approach it
+picks) matters more than anything later; that is when you would stop it. In a room you see only
+its answer. The answer to that: every message the room delivers names the session it went to, and
+opening it shows that turn from its first output, so the approach is one click away rather than a
+search. A live peek of a turn's first events inside the room can come later.
+
+**Who answers an unaddressed message** is open (below). Three ways:
+
+- Code matches the message against each member's name, its Bot, and the task it last set
+  (`set_task`). Free and predictable; it will miss.
+- Every member is woken to decide, as Grok Bot does. That is a turn for every member on every
+  message, and it is where Grok's reports of loops come from.
+- One cheap model call over the roster picks a member, and the room shows the pick as it delivers.
+  The router only chooses among members; it grants nothing, so it holds no brake.
+
+The lean is the first, with the third behind it when the first finds nobody.
+
+**What it changes in the kernel.** In command line mode the members are sessions Group did not
+start, mostly terminals in tmux. Group cannot kill them, since they are the reader's own sessions;
+its stop is to interrupt the turn it caused (an interrupt in the pane, `abort` for opencode) and
+to deliver nothing more. Leases and the budget still bound every turn Group causes; the process
+kill applies only to lanes Group itself started. A message reaches a terminals member through its
+pane or the messaging hub (which already delivers into opencode sessions), and its turn is found
+by session id (U3).
+
 ## Requirements
 
 - **Functional:** you and the agents post; mentions route; the log survives a sidecar restart; you
@@ -406,6 +453,10 @@ measured now stands in the way of any of the three; the choice is the one in the
 - Whether Claude's own telemetry export may be a source, which amends an AGENTS.md rule.
 - How the kernel is built: A, B or C above, after the spike answers U6 and U7.
 - When to restart the opencode serve with a span endpoint, to answer U4.
+- How an unaddressed message finds its member in command line mode: matching by code, a cheap
+  router call, or both (proposed: code first, the router when code finds nobody).
+- Which mode the first slice builds: command line (existing sessions, no rounds, no process kill)
+  is the smaller one and the one with the clearest daily use.
 
 ## Prior art
 
@@ -462,3 +513,6 @@ measured now stands in the way of any of the three; the choice is the one in the
 - 2026-10-25: U7 answered: `@effect/opentelemetry` drops every span under Sentry 11 on Bun, which
   registers no global provider; an Effect tracer of our own onto Sentry's span API carries them,
   except Sentry spans started inside Effect, which need its `context` hook. Only U4 is open.
+- 2026-10-25: the case for Group recorded: one hop to sessions you already have, where the Father
+  is two. A command line mode beside working together, its cost in steering and the click that
+  answers it, three ways to route an unaddressed message, and what it changes in the kernel.
