@@ -12,6 +12,7 @@ import { ArenaRunRegistry } from "@/arena/arenaRun";
 import { ArenaStore } from "@/arena/arenaStore";
 import type { ContestantDriver, ContestantDrivers, ContestantResume } from "@/arena/contestants/contestantDriver";
 import type { ArenaContestantSummary, ArenaCreateRunRequest } from "@agentdesk/agent-feed-wire";
+import { drained, until } from "@/testing/until";
 
 const roots: string[] = [];
 
@@ -103,14 +104,6 @@ function contestants(service: ArenaService): ArenaContestantSummary[] {
   return service.listRuns()[0]?.contestants ?? [];
 }
 
-async function until(condition: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
-
 describe("the run's mode", () => {
   test("is terminals by default where there are terminal drivers, headless where there are none", async () => {
     const withTmux = await arena({ terminalDrivers: { claude: closesAtOnce, opencode: closesAtOnce } });
@@ -151,7 +144,8 @@ describe("the start line", () => {
 
     claude.load("ready");
     await until(() => contestants(service)[0]?.status === "ready", "c1 to be ready");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The drivers are in memory, so a prompt that went out early would be out by now.
+    await drained();
     expect(claude.promptedAt()).toBeNull();
     expect(contestants(service)[1]?.status).toBe("starting");
 
@@ -222,7 +216,8 @@ describe("lanes opened before the prompt", () => {
     claude.load("ready");
     opencode.load("ready");
     await until(() => contestants(service).every((c) => c.status === "ready"), "both lanes ready");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The drivers are in memory, so a prompt that went out early would be out by now.
+    await drained();
     expect(claude.promptedAt()).toBeNull();
 
     const given = service.sendPrompt(run.runId, "  say one word  ");

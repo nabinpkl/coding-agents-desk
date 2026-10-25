@@ -4,7 +4,7 @@
 // which the pool's own tests pin. The marker's shape is pinned by `turnOutcomeOf` below,
 // against messages copied from this machine's serve.
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import {
   OpencodeContestantError,
   runOpencodeContestant,
@@ -15,6 +15,7 @@ import {
 } from "@/arena/contestants/opencodeContestant";
 import type { TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
+import { drained, settleOnFakeTime } from "@/testing/until";
 
 const event = (id: string, tool?: string): ActivityEvent => ({
   id,
@@ -119,7 +120,12 @@ function fakeServe(initial: OpencodeTurnOutcome = { closed: false }) {
 }
 
 const SUCCEEDED: OpencodeTurnOutcome = { closed: true, failure: null };
-const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
+// The fakes answer in memory, so `drained` takes a drive as far as it can go without the clock. The
+// rechecks and the turn's time limit are the contestant's own timers: the tests that need them run
+// on fake time, which moves only as far as the drive needs.
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 describe("runOpencodeContestant", () => {
   test("sends the prompt as one next delivery, in the session it created", async () => {
@@ -133,7 +139,7 @@ describe("runOpencodeContestant", () => {
     const { backend, deliver } = fakeBackend({});
     const { serve, options } = fakeServe();
     const finished = runOpencodeContestant(backend, plan, options);
-    await tick();
+    await drained();
     // A snapshot re-states rows, then a later upsert repeats one and adds another: the
     // collected turn is one event per id in projection order.
     deliver(envelope({ kind: "snapshot", runState: "running", events: [event("a"), event("b", "read")] }));
@@ -148,6 +154,7 @@ describe("runOpencodeContestant", () => {
   test("an idle projection is not a finished turn: only the serve's marker closes it", async () => {
     // Measured: the mapper counts a user row as closed, so the projection reads idle right
     // after the send, before the model has said a word.
+    jest.useFakeTimers();
     const { backend, deliver } = fakeBackend({});
     const { serve, options } = fakeServe();
     let done = false;
@@ -155,15 +162,19 @@ describe("runOpencodeContestant", () => {
       done = true;
       return result;
     });
-    await tick();
+    await drained();
     deliver(envelope({ kind: "upsert", runState: "idle", events: [event("u")] }));
-    await tick(30);
+    // Three rechecks' worth of fake time, every one of them answered "still open".
+    for (let recheck = 0; recheck < 3; recheck += 1) {
+      jest.advanceTimersByTime(options.recheckMs);
+      await drained();
+    }
     expect(done).toBe(false);
     expect(serve.reads).toBeGreaterThan(0);
 
     serve.outcome = SUCCEEDED;
     deliver(envelope({ kind: "upsert", runState: "idle", events: [event("a")] }));
-    expect((await finished).events.map((one) => one.id)).toEqual(["u", "a"]);
+    expect((await settleOnFakeTime(finished, options.recheckMs)).events.map((one) => one.id)).toEqual(["u", "a"]);
   });
 
   test("a turn the serve failed fails the contestant at once, with the serve's reason", async () => {
@@ -176,36 +187,38 @@ describe("runOpencodeContestant", () => {
   });
 
   test("reads once more when the marker lands after the last envelope", async () => {
+    jest.useFakeTimers();
     const { backend, deliver } = fakeBackend({});
     const { serve, options } = fakeServe();
     const finished = runOpencodeContestant(backend, plan, options);
-    await tick();
+    await drained();
     deliver(envelope({ runState: "idle" }));
-    await tick();
+    await drained();
     // No envelope follows this: the follow-up read is the only thing left to notice it.
     serve.outcome = SUCCEEDED;
-    await finished;
+    await settleOnFakeTime(finished, options.recheckMs);
     expect(serve.reads).toBeGreaterThan(1);
   });
 
   test("a running envelope does not ask; the turn is plainly still open", async () => {
+    jest.useFakeTimers();
     const { backend, deliver } = fakeBackend({});
     const { serve, options } = fakeServe(SUCCEEDED);
     const finished = runOpencodeContestant(backend, { ...plan, turnTimeoutMs: 200 }, options);
-    await tick();
+    await drained();
     const afterSend = serve.reads;
     deliver(envelope({ runState: "running" }));
     deliver(envelope({ runState: "running" }));
     expect(serve.reads).toBe(afterSend);
-    await finished;
+    await settleOnFakeTime(finished, options.recheckMs);
   });
 
   test("fails a turn that never closes, rather than waiting forever", async () => {
+    jest.useFakeTimers();
     const { backend } = fakeBackend({ envelopes: [envelope({ runState: "running" })] });
     const { options } = fakeServe();
-    await expect(runOpencodeContestant(backend, { ...plan, turnTimeoutMs: 50 }, options)).rejects.toThrow(
-      OpencodeContestantError,
-    );
+    const drive = runOpencodeContestant(backend, { ...plan, turnTimeoutMs: 50 }, options);
+    await expect(settleOnFakeTime(drive, options.recheckMs)).rejects.toThrow(OpencodeContestantError);
   });
 
   test("carries the usage the backend named at close", async () => {
@@ -226,7 +239,7 @@ describe("runOpencodeContestant", () => {
       { ...plan, onSessionId: (sessionId) => seen.push(sessionId) },
       options,
     );
-    await tick();
+    await drained();
     expect(seen).toEqual(["ses-arena"]);
     serve.outcome = SUCCEEDED;
     deliver(envelope({ runState: "idle" }));

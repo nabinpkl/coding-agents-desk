@@ -14,6 +14,7 @@ import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/c
 import type { ContestantDriver, ContestantDrivers } from "@/arena/contestants/contestantDriver";
 import type { ArenaCreateRunRequest, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent } from "@/transcripts/transcriptTypes";
+import { until } from "@/testing/until";
 
 const roots: string[] = [];
 
@@ -229,16 +230,13 @@ const request = (over: Record<string, unknown> = {}): ArenaCreateRunRequest => (
 });
 
 async function whenContestantsSettle(registry: ArenaRunRegistry): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (Date.now() < deadline) {
+  await until(() => {
     const runs = registry.list();
     const settled = runs.every((run: ArenaRunRecord) =>
       run.contestants.every((c) => c.status === "closed" || c.status === "failed"),
     );
-    if (runs.length > 0 && settled) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("contestants did not settle within the deadline");
+    return runs.length > 0 && settled;
+  }, "every contestant to close or fail");
 }
 
 test("a run makes every worktree first, registers, then fans the prompt out", async () => {

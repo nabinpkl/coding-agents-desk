@@ -10,6 +10,7 @@ import type { V2Event } from "@opencode/client";
 import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import type { AgentUiBroker } from "@/agents/agentUiBroker";
 import { OpencodeServeEvents, type ServeEventRouter } from "@/agents/opencode/serve/opencodeServeEvents";
+import { drained } from "@/testing/until";
 
 function compaction(type: string, data: Record<string, unknown>): V2Event {
   return { id: "evt-1", type, data } as unknown as V2Event;
@@ -29,6 +30,7 @@ function scriptedBroker(answers: unknown[], asked: unknown[]): AgentUiBroker {
   } as unknown as AgentUiBroker;
 }
 
+// The serve's stream and the broker are in memory here, so `drained` sees everything they set off.
 function harness(events: V2Event[], ui: AgentUiBroker | null = null) {
   const calls: string[] = [];
   const replies: unknown[] = [];
@@ -80,7 +82,7 @@ test("compaction streams by session and refreshes only when it lands", async () 
     }),
   ]);
   stream.setWanted(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drained();
   await stream.dispose();
   expect(calls).toEqual([
     "run:ses-1:running",
@@ -101,7 +103,7 @@ test("a compaction failure settles the notice and refreshes", async () => {
     }),
   ]);
   stream.setWanted(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drained();
   await stream.dispose();
   expect(calls).toEqual(["settled:ses-2", "refresh:ses-2"]);
 });
@@ -122,7 +124,7 @@ test("a turn's words go to the projection, and only the step ending buys a read"
     part("session.step.ended", { sessionID: "ses-1", assistantMessageID: "msg-1", finish: "stop" }),
   ]);
   stream.setWanted(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drained();
   await stream.dispose();
   expect(calls).toEqual([
     "part:ses-1:reasoning:started:msg-1:",
@@ -143,7 +145,7 @@ test("a tool lifecycle is not a word, so it leaves to the read that has the whol
     part("session.tool.success", { sessionID: "ses-1", assistantMessageID: "msg-1", id: "call-1" }),
   ]);
   stream.setWanted(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drained();
   await stream.dispose();
   // A partial tool row is a call with no result under it; the read that ends the step brings
   // the input, the output and the state together. These four do coalesce into one read.
@@ -158,14 +160,12 @@ test("a word event this shape cannot draw is dropped rather than read", async ()
     part("session.text.streamed", { sessionID: "ses-1", assistantMessageID: "msg-1", ordinal: 0, delta: "x" }),
   ]);
   stream.setWanted(true);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await drained();
   await stream.dispose();
   // Falling through to a read here would buy the same words one coalesced page re-read later,
   // which is the cost this family was moved off.
   expect(calls).toEqual([]);
 });
-
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 test("a permission the serve asks is asked of the reader, and the answer is its decision", async () => {
   const asked: unknown[] = [];
@@ -174,7 +174,7 @@ test("a permission the serve asks is asked of the reader, and the answer is its 
     scriptedBroker(["always"], asked),
   );
   stream.setWanted(true);
-  await settle();
+  await drained();
   await stream.dispose();
   expect(asked).toEqual([
     {
@@ -194,7 +194,7 @@ test("a reader who never answers a permission rejects it rather than leaving the
     scriptedBroker([undefined], []),
   );
   stream.setWanted(true);
-  await settle();
+  await drained();
   await stream.dispose();
   expect(replies).toEqual([{ permission: { sessionID: "ses-1", requestID: "per-2", decision: "reject" } }]);
 });
@@ -226,7 +226,7 @@ test("a form asks each field the closest way the broker can, and replies with th
     scriptedBroker(["iOS", true, "be quick", "3.7"], asked),
   );
   stream.setWanted(true);
-  await settle();
+  await drained();
   await stream.dispose();
   expect(asked.map((one) => (one as { kind: string }).kind)).toEqual(["select", "confirm", "input", "input"]);
   expect(replies).toEqual([
@@ -246,7 +246,7 @@ test("a failed turn marks the session errored, and a rename refreshes the catalo
     part("session.renamed", { sessionID: "ses-1", title: "New name" }),
   ]);
   stream.setWanted(true);
-  await settle();
+  await drained();
   await stream.dispose();
   expect(calls).toEqual(["run:ses-1:error", "refresh:ses-1", "catalog"]);
 });

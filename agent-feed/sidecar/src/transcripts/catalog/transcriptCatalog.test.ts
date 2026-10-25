@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ import { config } from "@/config/config";
 import { PI_AGENT_CAPABILITIES } from "@/agents/piAgentBackend";
 import type { Session } from "@/transcripts/transcriptTypes";
 import { state } from "@/transcripts/transcriptState";
+import { BROADCAST_COALESCE_MS } from "@/transcripts/catalog/catalogState";
 import { claudeAdapter } from "@/transcripts/claude/claudeTranscript";
 
 const temporaryDirectories: string[] = [];
@@ -416,41 +417,49 @@ describe("codex rollout refresh", () => {
     expect(refreshed?.gitBranch).toBe("main");
   });
 
+  // These two run on fake time: the per-file paths coalesce their broadcast on a timer, and the
+  // test moves the clock past it rather than waiting that long for real.
   test("tells the catalog's subscribers", async () => {
     const { path } = await knownRollout();
+    jest.useFakeTimers();
     let broadcasts = 0;
     const unsubscribe = subscribeCatalog(() => {
       broadcasts += 1;
     });
     try {
       await refreshCodexRollout(path);
-      // The per-file paths coalesce their broadcast, so wait past that window.
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      jest.advanceTimersByTime(BROADCAST_COALESCE_MS);
       expect(broadcasts).toBe(1);
     } finally {
       unsubscribe();
+      jest.useRealTimers();
     }
   });
 
   test("says nothing when the file moved but the record did not change", async () => {
     const { path } = await knownRollout();
-    await refreshCodexRollout(path);
-    // Past the first refresh's own coalesce window, so its broadcast is not counted
-    // against the second one.
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const settled = { ...state.sessions.get(sessionKey("codex", SESSION))! };
-
-    let broadcasts = 0;
-    const unsubscribe = subscribeCatalog(() => {
-      broadcasts += 1;
-    });
+    jest.useFakeTimers();
     try {
       await refreshCodexRollout(path);
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      expect(broadcasts).toBe(0);
-      expect(state.sessions.get(sessionKey("codex", SESSION))).toEqual(settled);
+      // Past the first refresh's own coalesce window, so its broadcast is not counted
+      // against the second one.
+      jest.advanceTimersByTime(BROADCAST_COALESCE_MS);
+      const settled = { ...state.sessions.get(sessionKey("codex", SESSION))! };
+
+      let broadcasts = 0;
+      const unsubscribe = subscribeCatalog(() => {
+        broadcasts += 1;
+      });
+      try {
+        await refreshCodexRollout(path);
+        jest.advanceTimersByTime(BROADCAST_COALESCE_MS);
+        expect(broadcasts).toBe(0);
+        expect(state.sessions.get(sessionKey("codex", SESSION))).toEqual(settled);
+      } finally {
+        unsubscribe();
+      }
     } finally {
-      unsubscribe();
+      jest.useRealTimers();
     }
   });
 

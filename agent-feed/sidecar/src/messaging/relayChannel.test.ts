@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { Message } from "@agentdesk/agent-feed-wire";
 import { HubClient } from "@/messaging/hubClient";
 import { channelNotification, confirmDelivery, runChannelLoop, type StreamDelivery } from "@/messaging/relayChannel";
+import { until } from "@/testing/until";
 
 const SESSION = "55555555-5555-5555-5555-555555555555";
 
@@ -111,7 +112,7 @@ describe("runChannelLoop", () => {
       },
       stop.signal,
     );
-    for (let i = 0; i < 50 && confirmed.length === 0; i++) await Bun.sleep(10);
+    await until(() => confirmed.length > 0, "the delivery's confirmation");
     stop.abort();
     await loop;
     expect(query?.get("session")).toBe(SESSION);
@@ -143,6 +144,13 @@ describe("runChannelLoop", () => {
                     `data: ${JSON.stringify({ type: "directive", id: "d1", kind: "rename-bracket", task: "night shift", streamId: "s1" })}\n\n`,
                   ),
                 );
+                // A message after it: the stream is read in order, so once this one is delivered,
+                // the directive before it has been passed over.
+                c.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "message", message: { ...message, id: "marker" }, fromName: "owner", streamId: "s1" })}\n\n`,
+                  ),
+                );
               },
             }),
             { headers: { "content-type": "text/event-stream" } },
@@ -172,10 +180,10 @@ describe("runChannelLoop", () => {
       },
       stop.signal,
     );
-    await Bun.sleep(100);
+    await until(() => delivered.length > 0, "the marker's delivery");
     stop.abort();
     await loop;
-    expect(delivered).toHaveLength(0);
+    expect(delivered.map((d) => d.message.id)).toEqual(["marker"]);
     expect(confirmed).toHaveLength(0);
   });
 });

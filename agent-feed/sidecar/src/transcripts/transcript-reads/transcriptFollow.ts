@@ -199,6 +199,16 @@ export function syncFollowedTranscript(source: TranscriptSourceId, sessionId: st
   if (follow) requestSync(follow);
 }
 
+/**
+ * Resolves once the follow has read everything it was asked to; for tests. A follow says nothing
+ * when a read finds no new line, and a test that expects nothing has only this to wait on, where it
+ * used to wait 20ms and hope the read was over.
+ */
+export async function followSettledForTest(source: TranscriptSourceId, sessionId: string): Promise<void> {
+  const follow = follows.get(sessionKey(source, sessionId));
+  while (follow?.syncing) await follow.syncing;
+}
+
 /** Forgets every follow; for tests, which share this process. */
 export function clearFollowsForTest(): void {
   follows.clear();

@@ -11,6 +11,7 @@ import {
   sessionActivity,
   type StaleSessionSources,
 } from "@/terminal/session-panes/staleClaudeSessions";
+import { drained } from "@/testing/until";
 
 const FLAGS = ["--permission-mode", "auto", "--allow-dangerously-skip-permissions"];
 const CURRENT = `claude ${FLAGS.join(" ")} --resume`;
@@ -271,7 +272,8 @@ test("no more than three restarts run at once", async () => {
     restart: async () => {
       running += 1;
       most = Math.max(most, running);
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      // A yield, not a length of time: the others start while this one is still out.
+      await drained();
       running -= 1;
     },
   });

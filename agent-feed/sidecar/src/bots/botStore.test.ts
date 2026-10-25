@@ -1,8 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import type { FSWatcher } from "chokidar";
 import { BotStore } from "@/bots/botStore";
+import { until } from "@/testing/until";
 
 const temporaryDirectories: string[] = [];
 
@@ -169,6 +171,47 @@ test("keeps a Bot's Father declaration, and rejects one that names no session or
   await expect(new BotStore(path).snapshot()).rejects.toThrow("names more than one Father");
 });
 
+/**
+ * Every re-read the store's watch makes after a change on disk, so a test can tell the watch heard
+ * a write rather than waiting a while and assuming it had.
+ */
+function watchedReads(store: BotStore): Promise<void>[] {
+  const inside = store as unknown as { announceExternalChange(): Promise<void> };
+  const announce = inside.announceExternalChange.bind(store);
+  const reads: Promise<void>[] = [];
+  spyOn(inside, "announceExternalChange").mockImplementation(() => {
+    const read = announce();
+    reads.push(read);
+    return read;
+  });
+  return reads;
+}
+
+/**
+ * Writes a probe file beside the store until its watch reports it. The watch opens asynchronously
+ * and chokidar reports nothing before its first scan, so this is how a test's own write lands on a
+ * watch that is already on. Beside the store's file rather than on it: chokidar drops a second
+ * change to one path that comes too soon after the first, and the probe's writes would swallow the
+ * test's own.
+ */
+async function watchIsOn(store: BotStore, path: string): Promise<void> {
+  const watcher = await (store as unknown as { watcher: Promise<FSWatcher> | null }).watcher!;
+  const probe = join(dirname(path), "watch-probe");
+  let heard = false;
+  const hear = (changed: string): void => {
+    if (changed === probe) heard = true;
+  };
+  watcher.on("add", hear).on("change", hear);
+  try {
+    await until(async () => {
+      await writeFile(probe, "x");
+      return heard;
+    }, "the store's watch to report a write");
+  } finally {
+    watcher.off("add", hear).off("change", hear);
+  }
+}
+
 test("announces a write made by another process, without anyone polling for it", async () => {
   // Bots are edited from more than one place: a second sidecar, an editor, a script. Those writes
   // used to reach the panel only because the registry rebuilt a full snapshot every second per
@@ -179,16 +222,20 @@ test("announces a write made by another process, without anyone polling for it",
 
   const seen: number[] = [];
   const unsubscribe = store.subscribe((snapshot) => seen.push(snapshot.revision));
-  // chokidar needs its initial scan to finish before it reports anything.
-  await Bun.sleep(60);
+  await watchIsOn(store, path);
 
   // Somebody else's atomic write: temp file plus rename, which is what the real `write` does and
   // why the watch is on the directory rather than on this path's inode.
+  //
+  // Repeated until announced, because chokidar drops a second change to one path within 50ms of
+  // the first, and the store's own write above can still be arriving when this one does. The same
+  // revision each time, so a store that announced it twice would show here.
   const temporary = `${path}.other`;
-  await writeFile(temporary, `${JSON.stringify({ version: 2, revision: 9, bots: [], idempotency: {} })}\n`);
-  await rename(temporary, path);
-
-  await Bun.sleep(250);
+  await until(async () => {
+    await writeFile(temporary, `${JSON.stringify({ version: 2, revision: 9, bots: [], idempotency: {} })}\n`);
+    await rename(temporary, path);
+    return seen.length > 0;
+  }, "the other process's write to be announced");
   expect(seen).toEqual([9]);
   unsubscribe();
 });
@@ -196,13 +243,18 @@ test("announces a write made by another process, without anyone polling for it",
 test("does not re-announce a write this process just made", async () => {
   // `mutate` already told the listeners, and its own rename is what wakes the watch. Reporting it
   // twice would make every local edit look like a remote one.
-  const { store } = await fixture();
+  const { path, store } = await fixture();
+  // Made now rather than by the first write, so the watch has a directory to report the probe in.
+  await mkdir(dirname(path), { recursive: true });
   const seen: number[] = [];
+  const reads = watchedReads(store);
   const unsubscribe = store.subscribe((snapshot) => seen.push(snapshot.revision));
-  await Bun.sleep(60);
+  await watchIsOn(store, path);
 
   await store.mutate((snapshot) => ({ snapshot: { ...snapshot, revision: 4 }, value: undefined }));
-  await Bun.sleep(250);
+  // The watch hears the rename `mutate` made, and its re-read is what must stay quiet.
+  await until(() => reads.length > 0, "the watch to hear this process's own write");
+  await Promise.all(reads);
 
   expect(seen).toEqual([4]);
   unsubscribe();

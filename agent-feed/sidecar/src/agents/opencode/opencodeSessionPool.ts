@@ -72,8 +72,8 @@ export interface OwnedSession {
   disposed: boolean;
 }
 
-/** Collapses one burst of serve events into one re-read. */
-const REFRESH_COALESCE_MS = 300;
+/** Collapses one burst of serve events into one re-read. Exported so a test can move fake time by it. */
+export const REFRESH_COALESCE_MS = 300;
 /**
  * How old a projection may be before opening it re-reads the serve.
  *

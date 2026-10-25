@@ -1,8 +1,13 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, jest, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composerPastes, meaning, pasteTokens } from "@/input/composer/composerPastes";
+import { until } from "@/testing/until";
+
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 const look = (store: ReturnType<typeof composerPastes>, pane: string) => (token: string) => store.textFor(pane, token);
 
@@ -72,10 +77,16 @@ describe("kept across a restart", () => {
     const file = join(work, "kept.json");
     const image = join(work, "a.png");
     writeFileSync(image, "png");
+    // The store writes a moment after it changes: fake time moves past that moment, then real time
+    // carries the write itself, which lands whole by rename.
+    jest.useFakeTimers();
     const first = composerPastes(file);
     first.bind("1234:%7", "[Pasted text #1]", "nine hundred characters");
     first.bindImage("1234:%7", "[Image #2]", image);
-    await Bun.sleep(400);
+    // Well past the store's own delay, which is a moment, not a measured value.
+    jest.advanceTimersByTime(1_000);
+    jest.useRealTimers();
+    await until(() => existsSync(file), "the store's write");
 
     expect(statSync(file).mode & 0o777).toBe(0o600);
     const second = composerPastes(file);

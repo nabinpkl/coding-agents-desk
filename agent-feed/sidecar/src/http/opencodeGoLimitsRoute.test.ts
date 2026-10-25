@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { VendorQuotas } from "@agentdesk/agent-feed-wire";
 import { createOpencodeGoLimitsRoute } from "@/http/opencodeGoLimitsRoute";
+import { until } from "@/testing/until";
 
 const reading: VendorQuotas = { vendor: "opencode-go", displayName: "OpenCode Go", quotas: [] };
 
@@ -38,7 +39,7 @@ test("the stream carries the current reading, subscribes while open and unsubscr
     expect(JSON.parse(text.replace(/^data: /, "").trim())).toEqual({ type: "report", report: { vendors: [reading] } });
     expect(subscribed).toBe(1);
     controller.abort();
-    await Bun.sleep(50);
+    await until(() => unsubscribed > 0, "the route to let go of the source");
     expect(unsubscribed).toBe(1);
     current = null;
   } finally {

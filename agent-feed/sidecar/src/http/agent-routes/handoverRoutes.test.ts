@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -326,6 +326,8 @@ test("a handover to Claude puts the started session on the asking Bot, in the sa
   seedOpencodeSession(OPENCODE_ID, "Wire contract");
   const started: { cwd: string; title: string; prompt?: string }[] = [];
   const attached: { botId: string; sessionId: string }[] = [];
+  const carried: string[] = [];
+  const quiet = spyOn(console, "error").mockImplementation(() => {});
   try {
     const route = createHandoverRoutes(() => undefined, {
       ...claudeActions(started, async () => ({ summary: null, turns: "human: hi", turnCount: 1, lossy: false })),
@@ -334,6 +336,12 @@ test("a handover to Claude puts the started session on the asking Bot, in the sa
         attach: async (botId, ref) => {
           attached.push({ botId, sessionId: ref.sessionId });
         },
+        // Throws after recording, because a log that cannot be carried must not undo a handover
+        // whose successor is already running (ADR-0147).
+        carryLog: async (from, to) => {
+          carried.push(`${from.source}:${from.sessionId} -> ${to.source}:${to.sessionId}`);
+          throw new Error("store unavailable");
+        },
       },
     });
     const request = handoverRequest({ requestId: "r7", sessionId: OPENCODE_ID, botId: "bot-1" });
@@ -341,6 +349,8 @@ test("a handover to Claude puts the started session on the asking Bot, in the sa
     expect(response?.status).toBe(201);
     const body = (await response?.json()) as { session: { sessionId: string } };
     expect(attached).toEqual([{ botId: "bot-1", sessionId: body.session.sessionId }]);
+    expect(carried).toEqual([`opencode:${OPENCODE_ID} -> claude:${body.session.sessionId}`]);
+    expect(quiet).toHaveBeenCalledWith("Handover could not carry the agent log", expect.any(Error));
 
     // A Bot that is gone is refused before anything starts, rather than leaving a pane behind.
     const stale = handoverRequest({ requestId: "r8", sessionId: OPENCODE_ID, botId: "bot-gone" });
@@ -349,6 +359,7 @@ test("a handover to Claude puts the started session on the asking Bot, in the sa
     expect(await refused?.json()).toMatchObject({ error: { code: "unknown-bot" } });
     expect(started).toHaveLength(1);
   } finally {
+    quiet.mockRestore();
     unseedOpencodeSession(OPENCODE_ID);
   }
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ControlHelperError, createControlHelper, type HelperProcess } from "@/desktop/controlHelper";
 import type { HelperBinary } from "@/desktop/helperBinary";
+import { drained } from "@/testing/until";
 
 const KIND_META = 0;
 const KIND_CONTROL = 4;
@@ -67,10 +68,8 @@ function ignore(pending: Promise<unknown>): void {
   void pending.catch(() => {});
 }
 
-/** Lets the frame reader drain what was just emitted. It is a real async generator, not a callback. */
-function settle(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
+/** Lets the frame reader drain what was just emitted. It is a real async generator in memory, not a callback. */
+const settle = drained;
 
 /** The rid the helper client assigned to the Nth request it wrote. */
 function ridOf(line: string): string {

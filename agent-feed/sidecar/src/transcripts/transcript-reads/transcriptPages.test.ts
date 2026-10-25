@@ -13,6 +13,7 @@ import {
 import { completeEnd, LINE_READ_BYTES, linesBefore } from "@/transcripts/transcript-reads/transcriptLines";
 import {
   clearFollowsForTest,
+  followSettledForTest,
   followTranscript,
   syncFollowedTranscript,
 } from "@/transcripts/transcript-reads/transcriptFollow";
@@ -324,8 +325,7 @@ describe("following a transcript", () => {
 
     await appendFile(path, `${[contentLine(1), contentLine(2)].join("\n")}\n`);
     syncFollowedTranscript(source, sessionId);
-    const deadline = Date.now() + 2000;
-    while (heard.length < 2 && Date.now() < deadline) await Bun.sleep(5);
+    await followSettledForTest(source, sessionId);
 
     expect(heard.map((line) => line.position)).toEqual([end, end + Buffer.byteLength(`${contentLine(1)}\n`)]);
     follow.release();
@@ -345,7 +345,8 @@ describe("following a transcript", () => {
     await appendFile(path, `${contentLine(1)}\n`);
     syncFollowedTranscript(source, sessionId);
     const grown = await completeEnd(path);
-    const deadline = Date.now() + 2000;
+    // The first reader's follow reads past the second reader's page end before the second starts.
+    await followSettledForTest(source, sessionId);
     const two = followTranscript(
       source,
       sessionId,
@@ -353,11 +354,7 @@ describe("following a transcript", () => {
       () => {},
       () => {},
     );
-    let from = two.start(first, { usage: null, model: undefined });
-    while (from < grown && Date.now() < deadline) {
-      await Bun.sleep(5);
-      from = two.start(first, { usage: null, model: undefined });
-    }
+    const from = two.start(first, { usage: null, model: undefined });
     // Not the second reader's own page end: the follow had already read past it.
     expect(from).toBe(grown);
     one.release();
@@ -377,8 +374,7 @@ describe("following a transcript", () => {
     follow.start(await completeEnd(path), { usage: null, model: undefined });
     await writeFile(path, `${contentLine(0)}\n`);
     syncFollowedTranscript(source, sessionId);
-    const deadline = Date.now() + 2000;
-    while (errors.length === 0 && Date.now() < deadline) await Bun.sleep(5);
+    await followSettledForTest(source, sessionId);
     expect(String(errors[0])).toMatch(/shrank/);
     follow.release();
   });

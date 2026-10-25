@@ -199,4 +199,20 @@ if ! tools/format.sh --check >/dev/null; then
     fail "files not formatted; run tools/format.sh"
 fi
 
+# 10. No sidecar test waits on the clock: no `setTimeout`, `setInterval` or `Bun.sleep` in a test, a
+#     test harness or a fixture. A fixed wait is a guess about how fast the machine is. Measured
+#     2026-10-19: run beside the panel's suite, two tests that waited 10ms for the Bot registry
+#     failed; under `bun test --parallel` a different one failed on each run; and the suite spent
+#     about 37 of its 45 seconds in 107 tests that mostly sat out timers. A test waits for what it
+#     expects instead -- `until` and `drained` in `src/testing/until.ts`, the one place allowed a
+#     timer -- or runs on fake time (`jest.useFakeTimers()`) when the code under test owns the timer.
+#     Matched as words, so a comment naming one of them fails too; name the idea instead.
+timers="$(grep -rnE '\bsetTimeout\b|\bsetInterval\b|\bBun\.sleep\b' agent-feed/sidecar/src \
+    --include='*.test.ts' --include='*Harness.ts' | grep -v '^agent-feed/sidecar/src/testing/' || true)"
+fixtures="$(find agent-feed/sidecar/src -path '*/fixtures/*' -name '*.ts' -exec grep -nHE '\bsetTimeout\b|\bsetInterval\b|\bBun\.sleep\b' {} + || true)"
+if [ -n "$timers$fixtures" ]; then
+    printf '%s\n' "$timers" "$fixtures" | sed '/^$/d' >&2
+    fail "a sidecar test waits on the clock; wait for the condition with until/drained (src/testing/until.ts) or use fake timers"
+fi
+
 echo "agent-feed-fitness: OK"

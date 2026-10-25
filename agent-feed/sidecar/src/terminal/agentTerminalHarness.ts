@@ -4,13 +4,14 @@
 // A function rather than module state, so each file gets its own temporary roots and its
 // own cleanup. Call it once at the top of a file.
 
-import { afterEach } from "bun:test";
+import { afterAll, afterEach, beforeAll, spyOn } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentTerminalService } from "@/terminal/agentTerminalService";
 import type { TmuxAttachments, TmuxSessionConnection } from "@/terminal/tmux/tmuxAttachment";
 import type { PaneRevival } from "@/terminal/tmux/tmuxSessions";
+import * as shellPath from "@/terminal/userShellPath";
 
 export const SESSION_ID = "019c3708-fadb-7e2f-a744-322df224faf4";
 
@@ -39,6 +40,15 @@ export interface SessionTmuxFakes {
 
 export function agentTerminalHarness() {
   const roots: string[] = [];
+
+  // A shell launch asks the owner's interactive login shell for its PATH, which runs their
+  // ~/.zshrc: 0.8s on a quiet machine and past Bun's five-second limit for a test on a busy one
+  // (2026-10-19). What their rc prints is not what these tests are about, so it is a fixed answer.
+  let fixedShellPath: { mockRestore(): void } | undefined;
+  beforeAll(() => {
+    fixedShellPath = spyOn(shellPath, "userShellPath").mockResolvedValue("/usr/bin:/bin");
+  });
+  afterAll(() => fixedShellPath?.mockRestore());
 
   afterEach(async () => {
     await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));

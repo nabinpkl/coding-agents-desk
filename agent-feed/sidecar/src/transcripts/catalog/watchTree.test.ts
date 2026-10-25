@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { watchTree, watchTreeEntries, type EntryChange, type TreeWatch } from "@/transcripts/catalog/watchTree";
+import { until } from "@/testing/until";
 
 const roots: string[] = [];
 const watches: TreeWatch[] = [];
@@ -32,18 +33,10 @@ function track<T extends TreeWatch>(watch: T): T {
 const PATIENT = 30_000;
 
 /**
- * Waits for a condition the watcher has to deliver, rather than for a fixed delay.
- *
- * The budget is a ceiling, not a delay: a satisfied predicate returns on the next poll, so a
- * longer one costs nothing when the watcher is working.
+ * How long a test waits for the watcher to deliver. A ceiling, not a delay: a satisfied condition
+ * returns on the next poll, so a long one costs nothing when the watcher is working.
  */
-async function until(predicate: () => boolean, budgetMs = 20_000): Promise<void> {
-  const deadline = Date.now() + budgetMs;
-  while (Date.now() < deadline) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
+const DELIVERY_BUDGET = 20_000;
 
 /**
  * A throwaway file written until the watch reports it, so the test's own writes land on a watch
@@ -68,12 +61,14 @@ function arming(base: string) {
       return true;
     },
     async ready(): Promise<void> {
-      const deadline = Date.now() + 5_000;
-      while (!heard && Date.now() < deadline) {
-        await writeFile(path, `${Date.now()}\n`);
-        await until(() => heard, 250);
-      }
-      if (!heard) throw new Error("the watch never reported its arming file within 5s");
+      await until(
+        async () => {
+          if (!heard) await writeFile(path, `${Date.now()}\n`);
+          return heard;
+        },
+        "the watch to report its arming file",
+        5_000,
+      );
     },
   };
 }
@@ -92,7 +87,7 @@ test(
 
     const target = join(base, "project", "session.jsonl");
     await writeFile(target, "one\n");
-    await until(() => seen.includes(target));
+    await until(() => seen.includes(target), "the watch to report it", DELIVERY_BUDGET);
 
     expect(seen).toContain(target);
   },
@@ -116,11 +111,15 @@ test(
     await writeFile(target, "one\n");
     await writeFile(target, "two\n");
     await writeFile(target, "three\n");
-    await until(() => seen.length > 0);
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    // Reported after everything above, because events arrive in order and every path waits the
+    // same window after its last one: once the marker is in, the target has said all it will.
+    const marker = join(base, "marker.jsonl");
+    await writeFile(marker, "x\n");
+    await until(() => seen.includes(marker), "the marker's report", DELIVERY_BUDGET);
 
-    expect(seen.length).toBeGreaterThan(0);
-    expect(seen.length).toBeLessThan(3);
+    const reports = seen.filter((path) => path === target).length;
+    expect(reports).toBeGreaterThan(0);
+    expect(reports).toBeLessThan(3);
   },
   PATIENT,
 );
@@ -143,7 +142,7 @@ test(
     const shallow = join(base, "one", "visible.jsonl");
     await writeFile(tooDeep, "x\n");
     await writeFile(shallow, "x\n");
-    await until(() => seen.includes(shallow));
+    await until(() => seen.includes(shallow), "the watch to report it", DELIVERY_BUDGET);
 
     expect(seen).toContain(shallow);
     expect(seen).not.toContain(tooDeep);
@@ -171,11 +170,11 @@ test(
 
     const target = join(base, "rollout.jsonl");
     await writeFile(target, "one\n");
-    await until(() => changes.length >= 1);
+    await until(() => changes.length >= 1, "the watch to report it", DELIVERY_BUDGET);
     await writeFile(target, "one\ntwo\n");
-    await until(() => changes.length >= 2);
+    await until(() => changes.length >= 2, "the watch to report it", DELIVERY_BUDGET);
     await unlink(target);
-    await until(() => changes.some(([, change]) => change === "vanished"));
+    await until(() => changes.some(([, change]) => change === "vanished"), "the watch to report it", DELIVERY_BUDGET);
 
     expect(changes[0]).toEqual([target, "appeared"]);
     expect(changes.some(([, change]) => change === "written")).toBe(true);
@@ -204,7 +203,7 @@ test(
     await writeFile(join(base, "notes.txt"), "x\n");
     const wanted = join(base, "kept.jsonl");
     await writeFile(wanted, "x\n");
-    await until(() => changes.includes(wanted));
+    await until(() => changes.includes(wanted), "the watch to report it", DELIVERY_BUDGET);
 
     expect(changes).toEqual([wanted]);
   },

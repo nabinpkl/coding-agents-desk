@@ -1,10 +1,15 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fetchGoQuotas, parseGoUsage } from "@/usage/opencodeGoQuota";
 import { createOpencodeGoSource } from "@/usage/opencodeGoLimits";
 import { readOpencodeGoKey } from "@/config/configOpencode";
+import { drained } from "@/testing/until";
+
+afterEach(() => {
+  jest.useRealTimers();
+});
 
 const window = (percent: unknown, resetsAt: unknown = "2026-10-16T08:34:37.000Z", status: unknown = "ok") => ({
   status,
@@ -90,27 +95,33 @@ test("reads the key only from the opencode-go entry; absent or malformed is null
 });
 
 test("the source polls only while subscribed and makes no request without a key", async () => {
+  // On fake time, so each poll comes when the test moves the clock; the fetch is in memory, so
+  // `drained` finishes what each one sets off.
+  jest.useFakeTimers();
+  const pollMs = 1_000;
   let calls = 0;
   let key: string | null = null;
   const source = createOpencodeGoSource({
     readKey: () => key,
     url: () => url,
-    pollMs: 5,
+    pollMs,
     fetch: (async () => {
       calls += 1;
       return Response.json(body);
     }) as never,
   });
   const off = source.subscribe(() => {});
-  await Bun.sleep(30);
+  await drained();
   expect(calls).toBe(0);
   expect(source.current()).toBeNull();
   key = "k";
-  await Bun.sleep(30);
+  jest.advanceTimersByTime(pollMs);
+  await drained();
   expect(source.current()?.quotas).toHaveLength(3);
   off();
   const after = calls;
-  await Bun.sleep(30);
+  jest.advanceTimersByTime(pollMs * 3);
+  await drained();
   expect(calls).toBe(after);
   expect(source.current()).toBeNull();
 });
@@ -129,9 +140,10 @@ test("a poll that finishes after the last reader left leaves nothing behind", as
     }) as never,
   });
   const off = source.subscribe(() => {});
-  await Bun.sleep(5);
+  // The fetch is in memory, so `drained` takes it as far as the release it is waiting on.
+  await drained();
   off();
   release!();
-  await Bun.sleep(10);
+  await drained();
   expect(source.current()).toBeNull();
 });

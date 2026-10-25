@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RepositoryEventSource } from "@/workspace/repositoryEvents";
 import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import type { DirectoryGitStatus } from "@/workspace/workspaceGit";
+import { until } from "@/testing/until";
 
 const roots: string[] = [];
 const watches: RepositoryGitWatch[] = [];
@@ -49,14 +50,10 @@ function follow(watch: RepositoryGitWatch, directory: string) {
     seen,
     stop,
     paths,
-    async until(accept: (status: DirectoryGitStatus | null) => boolean, timeoutMs = 5_000) {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const match = seen.find(accept);
-        if (match !== undefined) return match;
-        await Bun.sleep(25);
-      }
-      throw new Error(`no matching status in ${timeoutMs}ms; saw ${JSON.stringify(seen.map(paths))}`);
+    async until(accept: (status: DirectoryGitStatus | null) => boolean) {
+      await until(() => seen.some(accept), "a matching status").catch((error: unknown) => {
+        throw new Error(`${String(error)}; saw ${JSON.stringify(seen.map(paths))}`);
+      });
     },
   };
 }
@@ -87,26 +84,74 @@ for (const source of ["tree", "folders"] as const) {
     const reader = follow(watcher(source), root);
     await reader.until((status) => status !== null);
 
-    // The directories exist, empty, before the file does: git lists neither until the write.
+    // The directories exist, empty, before the file does: git lists neither until the write. The
+    // watch reads the status again for a new directory, so the write waits for that read and
+    // lands after the last listing rather than in the same burst as the mkdir.
+    const listed = reader.seen.length;
     await mkdir(join(root, "fresh", "deeper"), { recursive: true });
-    await Bun.sleep(400);
-    await writeFile(join(root, "fresh", "deeper", "new.txt"), "x");
-    await reader.until((status) => reader.paths(status).includes("fresh/deeper/new.txt"));
+    await until(() => reader.seen.length > listed, "the read the new directories set off");
+    // Written until seen. `folders` adopts a new directory by opening a watch on it, and on macOS a
+    // write in that watch's first ~100ms is lost, not late (measured 2026-10-18, see watchTree's
+    // tests). Linux, where `folders` is the source in use, adds an inotify watch at once.
+    const written = join(root, "fresh", "deeper", "new.txt");
+    await until(async () => {
+      await writeFile(written, "x");
+      return reader.seen.some((status) => reader.paths(status).includes("fresh/deeper/new.txt"));
+    }, "the new file in a status");
   });
 
   test(`${source}: asks git nothing for a write git ignores`, async () => {
     const root = await repository();
-    const reader = follow(watcher(source), root);
+    const watch = watcher(source);
+    const reader = follow(watch, root);
     await reader.until((status) => status !== null);
-    await Bun.sleep(300);
-    const before = reader.seen.length;
 
-    for (let n = 0; n < 5; n += 1) {
-      await writeFile(join(root, "build", `out-${n}.js`), "x");
-      await Bun.sleep(50);
+    // Asked of the watch itself, not of how long nothing happened: waiting a while and counting
+    // statuses proved nothing a busy machine could not also produce (2026-10-19).
+    const inside = watch as unknown as {
+      repositories: Map<string, Promise<{ folders: Set<string> }>>;
+      consider(repository: unknown, path: string): Promise<void>;
+      schedule(repository: unknown): void;
+    };
+    if (source === "folders") {
+      // One watch per directory git lists, and git lists no ignored one, so a write there never
+      // reaches the watch at all.
+      const repository = await inside.repositories.get(root);
+      expect(repository?.folders.has(root)).toBe(true);
+      expect(repository?.folders.has(join(root, "build"))).toBe(false);
+      return;
     }
-    await Bun.sleep(600);
-    expect(reader.seen.length).toBe(before);
+
+    // One watch for the whole tree, so every write arrives and goes through `consider`, which books
+    // a git read through `schedule` or drops the path.
+    const consider = inside.consider.bind(watch);
+    const considered: { path: string; done: Promise<void> }[] = [];
+    spyOn(inside, "consider").mockImplementation((repository, path) => {
+      const done = consider(repository, path);
+      considered.push({ path, done });
+      return done;
+    });
+    const schedule = inside.schedule.bind(watch);
+    let booked = 0;
+    spyOn(inside, "schedule").mockImplementation((repository) => {
+      booked += 1;
+      schedule(repository);
+    });
+
+    const written = [0, 1, 2, 3, 4].map((n) => join(root, "build", `out-${n}.js`));
+    for (const path of written) await writeFile(path, "x");
+    await until(
+      () => written.every((path) => considered.some((seen) => seen.path === path)),
+      "the watch to consider every ignored write",
+    );
+    await Promise.all(considered.map((seen) => seen.done));
+
+    // Nothing but ignored paths went through here, or the count would say nothing about them.
+    const build = join(root, "build");
+    expect(
+      considered.map((seen) => seen.path).filter((path) => path !== build && !path.startsWith(`${build}/`)),
+    ).toEqual([]);
+    expect(booked).toBe(0);
   });
 }
 
@@ -134,12 +179,16 @@ test("a directory outside any repository answers null, then a status once it bec
 
 test("a reader that left hears nothing more", async () => {
   const root = await repository();
-  const reader = follow(watcher("tree"), root);
+  const watch = watcher("tree");
+  const reader = follow(watch, root);
+  // Still subscribed, so it shows the change below was read and handed out.
+  const witness = follow(watch, root);
   await reader.until((status) => status !== null);
   reader.stop();
   const before = reader.seen.length;
 
   await writeFile(join(root, "tracked.txt"), "changed while nobody listened\n");
-  await Bun.sleep(600);
+  await witness.until((status) => witness.paths(status).includes("tracked.txt"));
   expect(reader.seen.length).toBe(before);
+  witness.stop();
 });

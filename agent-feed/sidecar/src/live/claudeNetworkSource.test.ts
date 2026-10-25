@@ -6,6 +6,7 @@ import {
   requestsLongContext,
   subscribeToObserver,
 } from "@/live/claudeNetworkSource";
+import { until } from "@/testing/until";
 
 test("SseTextParser splits data frames and tolerates split chunk boundaries", () => {
   const parser = new SseTextParser();
@@ -87,6 +88,7 @@ test("requestsLongContext reads the header name case-insensitively, and survives
  */
 function fakeObserver(events: "full" | "live") {
   const deleted: string[] = [];
+  const served = { events: 0 };
   let created = 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -102,6 +104,7 @@ function fakeObserver(events: "full" | "live") {
         deleted.push(pathname.slice("/v1/viewer/streams/".length));
         return new Response(null, { status: 204 });
       }
+      served.events += 1;
       if (events === "full") {
         return Response.json({ code: "OBSERVER_ERROR_CODE_STREAM_CAPACITY_REACHED" }, { status: 503 });
       }
@@ -115,11 +118,7 @@ function fakeObserver(events: "full" | "live") {
       );
     },
   });
-  return { endpoint: new URL(`http://127.0.0.1:${server.port}`), deleted, stop: () => server.stop(true) };
-}
-
-async function until(condition: () => boolean): Promise<void> {
-  for (let waited = 0; !condition() && waited < 2_000; waited += 10) await Bun.sleep(10);
+  return { endpoint: new URL(`http://127.0.0.1:${server.port}`), deleted, served, stop: () => server.stop(true) };
 }
 
 // The 2026-10-02 pile-up: the stream was created, its events were refused because proxy-agent's
@@ -134,7 +133,7 @@ test("a stream whose events are refused is handed back", async () => {
         () => {},
       ),
     ).rejects.toThrow("proxy observer events failed: HTTP 503");
-    await until(() => observer.deleted.length > 0);
+    await until(() => observer.deleted.length > 0, "the stream to be handed back");
     expect(observer.deleted).toEqual(["stream-1"]);
   } finally {
     await observer.stop();
@@ -149,12 +148,14 @@ test("a live stream is handed back when it is closed, and not before", async () 
       () => {},
       () => {},
     );
-    await Bun.sleep(50);
+    // Live end to end: the observer is serving its events.
+    await until(() => observer.served.events > 0, "the events request");
     expect(observer.deleted).toEqual([]);
 
     subscription.close();
     await subscription.closed;
-    await until(() => observer.deleted.length > 0);
+    await until(() => observer.deleted.length > 0, "the stream to be handed back");
+    // Once, by the close. A stream handed back early as well would show here twice.
     expect(observer.deleted).toEqual(["stream-1"]);
   } finally {
     await observer.stop();

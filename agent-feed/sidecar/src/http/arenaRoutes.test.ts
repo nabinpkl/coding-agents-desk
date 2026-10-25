@@ -13,6 +13,7 @@ import { ArenaService } from "@/arena/arenaService";
 import { ArenaStore } from "@/arena/arenaStore";
 import { runOpencodeContestant, type OpencodeContestantBackend } from "@/arena/contestants/opencodeContestant";
 import type { TimelineEnvelope } from "@agentdesk/agent-feed-wire";
+import { until } from "@/testing/until";
 
 const roots: string[] = [];
 const servers: ReturnType<typeof Bun.serve>[] = [];
@@ -135,20 +136,18 @@ test("creates a run and answers its summary, then the facts as the contestants c
   const run = (await created.json()) as { runId: string; contestants: unknown[] };
   expect(run.contestants.length).toBe(1);
 
-  // Facts arrive when the contestant closes; the deadline is the route's own honesty about it.
-  const deadline = Date.now() + 2000;
+  // Facts arrive when the contestant closes, so the route is asked until it says so.
   let status = "";
-  let gitDiff: string | null = null;
-  while (Date.now() < deadline) {
+  let gitDiff = null as string | null;
+  await until(async () => {
     const response = await at(`/api/arena/runs/${run.runId}`);
     const detail = (await response.json()) as {
       contestants: { status: string; gitDiff: string | null }[];
     };
     status = detail.contestants[0]?.status ?? "";
     gitDiff = detail.contestants[0]?.gitDiff ?? null;
-    if (status === "closed") break;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+    return status === "closed";
+  }, "the contestant to close");
   expect(status).toBe("closed");
   expect(gitDiff).toBe("diff --git a/README");
 });
@@ -245,10 +244,7 @@ test("a settled run takes its next prompt; one still on its last is a 409; an un
     (
       (await (await at(`/api/arena/runs/${created.runId}`)).json()) as { contestants: { status: string }[] }
     ).contestants.map((one) => one.status);
-  const deadline = Date.now() + 2000;
-  while (!(await statuses()).every((status) => status === "closed") && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await until(async () => (await statuses()).every((status) => status === "closed"), "every contestant to close");
   const next = await at(`/api/arena/runs/${created.runId}/prompt`, {
     method: "POST",
     body: JSON.stringify({ prompt: "again" }),

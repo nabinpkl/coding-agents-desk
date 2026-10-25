@@ -7,6 +7,7 @@ import { RepositoryGitWatch } from "@/workspace/repositoryWatch";
 import { WorkspaceSharedStateStore } from "@/workspace/workspaceSharedState";
 import { WorkspaceService } from "@/workspace/workspaceService";
 import { WorkspaceStore } from "@/workspace/workspaceStore";
+import { until } from "@/testing/until";
 
 const scratches: string[] = [];
 const services: WorkspaceService[] = [];
@@ -128,9 +129,5 @@ test("the git status moves for an edit inside a collapsed directory", async () =
   expect(service.watchedDirectories).toEqual([project]);
 
   await writeFile(join(project, "src", "deep", "file.ts"), "two\n");
-  const deadline = Date.now() + 5_000;
-  while (!git.some((paths) => paths.includes("src/deep/file.ts")) && Date.now() < deadline) {
-    await Bun.sleep(25);
-  }
-  expect(git.some((paths) => paths.includes("src/deep/file.ts"))).toBe(true);
+  await until(() => git.some((paths) => paths.includes("src/deep/file.ts")), "git to be asked about the deep file");
 });

@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import type { ActivityEvent, TimelineEnvelope, TokenUsage } from "@agentdesk/agent-feed-wire";
 import { createTimelineFollower, TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
 import { subscribeTranscriptTimeline } from "@/http/session-routes/sessionRoutes";
-import { clearFollowsForTest, syncFollowedTranscript } from "@/transcripts/transcript-reads/transcriptFollow";
+import {
+  clearFollowsForTest,
+  followSettledForTest,
+  syncFollowedTranscript,
+} from "@/transcripts/transcript-reads/transcriptFollow";
+import { drained } from "@/testing/until";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { state } from "@/transcripts/transcriptState";
 
@@ -170,11 +175,14 @@ function contentLine(turn: number): string {
   });
 }
 
-async function waitFor(settled: () => boolean, timeoutMs = 4000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!settled() && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+/**
+ * Everything the follow has been asked to read is read, and what it read has been handed out: the
+ * follow's own read, then the microtask the follower batches its envelopes on. Exact, where a
+ * fixed wait could not say whether a missing envelope was late or never coming.
+ */
+async function delivered(): Promise<void> {
+  await followSettledForTest(SOURCE, SESSION_ID);
+  await drained();
 }
 
 test("a transcript that grows past a window after the stream opened hands over a checkpoint", async () => {
@@ -213,7 +221,7 @@ test("a transcript that grows past a window after the stream opened hands over a
     opened - Buffer.byteLength(`${opening[2]}\n`),
   );
   expect(stop).not.toBeNull();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await delivered();
   expect(envelopes).toEqual([]);
 
   // The shape a resumed session writes: the whole prior conversation at once, after the reader
@@ -221,8 +229,7 @@ test("a transcript that grows past a window after the stream opened hands over a
   const replayed = Array.from({ length: 240 }, (_, offset) => contentLine(offset + 3));
   await appendFile(transcriptPath, `${replayed.join("\n")}\n`);
   syncFollowedTranscript(SOURCE, SESSION_ID);
-  await waitFor(() => envelopes.length > 0);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await delivered();
 
   expect(errors).toEqual([]);
   // One message carrying the end of the record, not 240 appends walking a reader through it.
@@ -264,12 +271,12 @@ test("an ordinary turn's rows still arrive as rows", async () => {
     { onEnvelope: (envelope) => envelopes.push(envelope), onError: () => {} },
     0,
   );
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await delivered();
 
   const appended = [1, 2, 3].map(contentLine);
   await appendFile(transcriptPath, `${appended.join("\n")}\n`);
   syncFollowedTranscript(SOURCE, SESSION_ID);
-  await waitFor(() => envelopes.length >= 3);
+  await delivered();
 
   expect(envelopes.map((envelope) => envelope.kind)).toEqual(["upsert", "upsert", "upsert"]);
   // Each row is named by where its line starts, and says which row came before it.

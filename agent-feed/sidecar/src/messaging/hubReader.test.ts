@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { Message } from "@agentdesk/agent-feed-wire";
 import { HubClient } from "@/messaging/hubClient";
 import { readerLine, runHubReader, watchParent } from "@/messaging/hubReader";
+import { until } from "@/testing/until";
 
 const SESSION = "0b1e8c52-1a8e-4a3a-9d3f-2f1f0f6c1a11";
 const message = {
@@ -26,6 +27,7 @@ const message = {
 
 let fake: ReturnType<typeof Bun.serve> | undefined;
 afterEach(async () => {
+  jest.useRealTimers();
   await fake?.stop(true);
   fake = undefined;
 });
@@ -83,8 +85,8 @@ describe("runHubReader", () => {
       },
       stop.signal,
     );
-    for (let i = 0; i < 50 && lines.length === 0; i++) await Bun.sleep(10);
-    await Bun.sleep(50);
+    await until(() => lines.length > 0, "the message's line");
+    // Stopped and awaited, so every request the reader made is in before anything is checked.
     stop.abort();
     await reader;
 
@@ -100,13 +102,15 @@ describe("runHubReader", () => {
 
 describe("watchParent", () => {
   test("calls gone once the parent pid changes, and only then", async () => {
+    // On fake time: the watch is a poll, and the clock moves only when the test moves it.
+    jest.useFakeTimers();
     let parent = 4242;
     let gone = 0;
     const stop = watchParent({ parentPid: () => parent, intervalMs: 5, gone: () => gone++ });
-    await Bun.sleep(30);
+    jest.advanceTimersByTime(30);
     expect(gone).toBe(0);
     parent = 1;
-    await Bun.sleep(30);
+    jest.advanceTimersByTime(30);
     stop();
     expect(gone).toBe(1);
   });

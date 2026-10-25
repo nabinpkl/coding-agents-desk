@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
   ModelRuntime,
@@ -18,14 +18,12 @@ import {
 } from "@/summary/summaryRuntime";
 import type { TurnWindow } from "@/summary/turnWindow";
 
-/** `config` is `as const` for readers, not frozen. Tests drive the two flags it gates on. */
+/** `config` is `as const` for readers, not frozen. Tests drive the flag it gates on. */
 const mutable = config as unknown as {
   summaryEnabled: boolean;
-  summaryTimeoutMs: number;
 };
 const original = {
   summaryEnabled: mutable.summaryEnabled,
-  summaryTimeoutMs: mutable.summaryTimeoutMs,
 };
 mutable.summaryEnabled = true;
 
@@ -125,14 +123,42 @@ test("a silent run raises rather than returning an empty summary", async () => {
   await expect(runner.run({ project: "/p", window, runState: "idle" })).rejects.toThrow(/no reply/);
 });
 
+// On fake time, so the timeout fires when the test moves the clock rather than after the
+// configured wait. This test once waited out a real five seconds, the slowest in the suite.
 test("a session that never answers times out and aborts", async () => {
-  mutable.summaryTimeoutMs = 5_000;
-  const fake = fakeSession();
-  fake.session.prompt = () => new Promise<void>(() => {});
-  const runner = createSummaryRunner(async () => fake.session);
-  await expect(runner.run({ project: "/p", window, runState: "idle" })).rejects.toThrow(/did not answer within/);
-  expect(fake.abortCount()).toBe(1);
-}, 20_000);
+  jest.useFakeTimers();
+  try {
+    const fake = fakeSession();
+    fake.session.prompt = () => new Promise<void>(() => {});
+    const runner = createSummaryRunner(async () => fake.session);
+    // Caught rather than handed to `expect(...).rejects`, which waits for the promise on the spot:
+    // with the clock stopped it would wait for good.
+    const failure = runner.run({ project: "/p", window, runState: "idle" }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await timerArmed();
+    jest.advanceTimersByTime(config.summaryTimeoutMs);
+    // Back on real time before waiting, so a timeout that never fired fails on Bun's own limit for
+    // a test instead of hanging: that limit is a timer too, and fake time stops it.
+    jest.useRealTimers();
+    expect(String(await failure)).toMatch(/did not answer within/);
+    expect(fake.abortCount()).toBe(1);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+/**
+ * The run sets its timeout a few promise turns after it starts, behind the session it awaits.
+ * Turns, not time: nothing here touches a clock, and the bound only stops a broken run looping.
+ */
+async function timerArmed(): Promise<void> {
+  for (let turn = 0; jest.getTimerCount() === 0; turn++) {
+    if (turn === 100) throw new Error("the summary run never set its timeout");
+    await Promise.resolve();
+  }
+}
 
 test("a long reasoning block is cut with a mark, not silently", async () => {
   const fake = fakeSession();

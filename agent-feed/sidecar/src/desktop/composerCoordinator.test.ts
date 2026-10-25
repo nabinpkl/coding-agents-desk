@@ -3,6 +3,7 @@ import type { DesktopAuditSnapshot } from "@agentdesk/agent-feed-wire";
 import { createComposerCoordinator, type ComposerEnvelope } from "@/desktop/composerCoordinator";
 import { ControlHelperError, type ControlHelper } from "@/desktop/controlHelper";
 import type { ProcessRow } from "@/desktop/claudeSessionResolver";
+import { drained } from "@/testing/until";
 
 /**
  * The coordinator's window-borrowing sequence.
@@ -89,8 +90,8 @@ function coordinator(helper: ControlHelper, rows: ProcessRow[]) {
   });
 }
 
-/** Lets the coordinator's own serialized queue drain. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+/** Lets the coordinator's own serialized queue drain; it runs in memory here. */
+const settle = drained;
 
 describe("borrowing a window for a write", () => {
   const session = "s-1";

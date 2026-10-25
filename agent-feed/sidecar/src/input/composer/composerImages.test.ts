@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { imageMediaType, writeComposerImage } from "@/input/composer/composerImages";
+import { until } from "@/testing/until";
 
 /** A file's first bytes, which is all the sniff ever looks at. */
 function bytes(...values: number[]): Uint8Array {
@@ -63,9 +64,10 @@ test("sweeps images old enough that nothing is still looking at them", async () 
   await utimes(stale, old, old);
 
   const kept = await writeComposerImage(PNG, "image/png", where);
-  // The sweep is not awaited by the write -- it is tidying, not the request -- so give it a turn.
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(await readdir(where.directory)).toEqual([kept.split("/").at(-1)!]);
+  // The sweep is not awaited by the write -- it is tidying, not the request -- so wait for its result.
+  const keptName = kept.split("/").at(-1)!;
+  await until(async () => (await readdir(where.directory)).length === 1, "the sweep to remove the stale image");
+  expect(await readdir(where.directory)).toEqual([keptName]);
 });
 
 test("refuses a directory whose name would break the paste it ends up inside", async () => {

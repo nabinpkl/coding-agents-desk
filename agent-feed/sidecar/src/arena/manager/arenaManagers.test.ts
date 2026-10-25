@@ -14,6 +14,7 @@ import { ArenaBadRequestError, ArenaRunBusyError, ArenaService } from "@/arena/a
 import { ArenaStore } from "@/arena/arenaStore";
 import type { ContestantDriver } from "@/arena/contestants/contestantDriver";
 import { ArenaManagers, type ManagerSteps } from "@/arena/manager/arenaManagers";
+import { until } from "@/testing/until";
 
 const roots: string[] = [];
 /** The model each drive was planned with, in the order the drives began. */
@@ -103,14 +104,6 @@ const request = (over: Partial<ArenaCreateRunRequest> = {}): ArenaCreateRunReque
   manager: "claude",
   ...over,
 });
-
-async function until(condition: () => boolean, what: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 test("a Claude manager starts in the run's manager folder, without its edit tools, after its brief is there", async () => {
   const { service, started, home } = await arena();

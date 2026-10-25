@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "@agentdesk/agent-feed-wire";
 import { HubOpencodeAdapter, messagePrompt, type OpencodeSessionRef } from "@/messaging/hubOpencode";
 import { HubClient } from "@/messaging/hubClient";
+import { until } from "@/testing/until";
 
 interface FakeStream {
   session: string;
@@ -74,10 +75,8 @@ function message(over: Partial<Message> = {}): Message {
   };
 }
 
-async function settle(): Promise<void> {
-  for (let i = 0; i < 50; i++) await Bun.sleep(5);
-}
-
+// The hub is a real server on a local port, so each test waits for the request or the stream it
+// expects rather than for a length of time.
 describe("messagePrompt", () => {
   test("carries the same facts the channel meta does, plus the refs", () => {
     const prompt = messagePrompt(
@@ -177,12 +176,12 @@ describe("HubOpencodeAdapter", () => {
       },
     });
     adapter.start();
-    await settle();
+    await until(() => streams.length > 0, "the session's stream");
     expect(streams.map((s) => [s.session, s.source])).toEqual([["ses_1", "opencode"]]);
 
     streams[0]!.emit({ type: "hello", address: "opencode:ses_1", channel: true, streamId: "s1" });
     streams[0]!.emit({ type: "message", message: message(), fromName: "owner", streamId: "s1" });
-    await settle();
+    await until(() => posts.some((p) => p.path.endsWith("/delivered")), "the delivery's confirmation");
 
     expect(prompts).toHaveLength(1);
     expect(prompts[0]!.sessionId).toBe("ses_1");
@@ -194,6 +193,7 @@ describe("HubOpencodeAdapter", () => {
 
   test("a failed prompt is not confirmed, so the message waits for redelivery", async () => {
     const { hub, streams, posts } = fakeHub();
+    const logs: string[] = [];
     const adapter = new HubOpencodeAdapter({
       hub,
       serve: {
@@ -203,17 +203,19 @@ describe("HubOpencodeAdapter", () => {
         },
         onChanged: () => () => {},
       },
-      log: () => {},
+      log: (line) => void logs.push(line),
       sleep: async () => {},
       rename: async () => {
         throw new Error("unreached");
       },
     });
     adapter.start();
-    await settle();
+    await until(() => streams.length > 0, "the session's stream");
     streams[0]!.emit({ type: "hello", address: "opencode:ses_1", channel: true, streamId: "s1" });
     streams[0]!.emit({ type: "message", message: message(), fromName: "owner", streamId: "s1" });
-    await settle();
+    // The confirmation goes out only after a prompt that worked, in the same call, so once the
+    // failure is logged that call is over and there is nothing still on its way.
+    await until(() => logs.some((line) => line.includes("serve answered 404")), "the failure to be logged");
     expect(posts.filter((p) => p.path.endsWith("/delivered"))).toHaveLength(0);
     adapter.stop();
   });
@@ -235,7 +237,7 @@ describe("HubOpencodeAdapter", () => {
       },
     });
     adapter.start();
-    await settle();
+    await until(() => adapter.connected.length > 0, "the session's stream");
     expect(adapter.connected).toEqual(["ses_1"]);
     listed = [];
     await adapter.sync();
@@ -262,7 +264,7 @@ describe("HubOpencodeAdapter", () => {
       },
     });
     adapter.start();
-    await settle();
+    await until(() => logs.length > 0, "the adapter to say why");
     expect(streams).toHaveLength(0);
     expect(logs[0]).toContain("serve is down");
     adapter.stop();
@@ -288,10 +290,10 @@ describe("HubOpencodeAdapter", () => {
       },
     });
     adapter.start();
-    await settle();
+    await until(() => streams.length > 0, "the session's stream");
     streams[0]!.emit({ type: "hello", address: "opencode:ses_1", channel: true, streamId: "s1" });
     streams[0]!.emit({ type: "directive", id: "d1", kind: "rename-bracket", task: "night shift", streamId: "s1" });
-    await settle();
+    await until(() => posts.some((p) => p.path === "/v1/directives/d1/done"), "the directive's confirmation");
 
     expect(renamed).toEqual([{ ref: { source: "opencode", sessionId: "ses_1" }, task: "night shift" }]);
     expect(posts.at(-1)).toEqual({
@@ -317,10 +319,10 @@ describe("HubOpencodeAdapter", () => {
       },
     });
     adapter.start();
-    await settle();
+    await until(() => streams.length > 0, "the session's stream");
     streams[0]!.emit({ type: "hello", address: "opencode:ses_1", channel: true, streamId: "s1" });
     streams[0]!.emit({ type: "directive", id: "d2", kind: "rename-bracket", task: "night shift", streamId: "s1" });
-    await settle();
+    await until(() => posts.some((p) => p.path === "/v1/directives/d2/done"), "the directive's confirmation");
 
     expect(posts.at(-1)).toEqual({
       path: "/v1/directives/d2/done",

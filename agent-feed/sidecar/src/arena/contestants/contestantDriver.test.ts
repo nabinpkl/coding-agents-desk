@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { StartLine } from "@/arena/contestants/contestantDriver";
+import { drained } from "@/testing/until";
 
 /** Whether a promise has settled, asked without waiting on it. */
 async function settled(promise: Promise<unknown>): Promise<boolean> {
@@ -12,7 +13,8 @@ async function settled(promise: Promise<unknown>): Promise<boolean> {
       done = true;
     },
   );
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The arrivals settle in memory, so whatever this one was going to do is done after `drained`.
+  await drained();
   return done;
 }
 

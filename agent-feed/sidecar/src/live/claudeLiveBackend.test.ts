@@ -4,7 +4,6 @@ import {
   delta,
   ended,
   flowEvent,
-  flush,
   startFixture,
   LONG_CONTEXT_BETAS,
   ORDINARY_BETAS,
@@ -38,7 +37,7 @@ describe("ClaudeLiveBackend ingest", () => {
     );
     backend.acceptObserverEvent(delta("f1", { type: "message_stop" }));
     backend.acceptObserverEvent(ended("f1"));
-    await flush(160);
+    await fixture.settled();
   });
 
   afterAll(async () => {
@@ -101,7 +100,7 @@ describe("ClaudeLiveBackend ingest", () => {
     );
     probe.acceptObserverEvent(delta("fc", { type: "message_stop" }));
     probe.acceptObserverEvent(ended("fc"));
-    await flush(160);
+    await fixture.settled();
 
     const page = await probe.page(probeSession, 0, 10, "nice");
     expect(page.total).toBe(1);
@@ -137,7 +136,7 @@ describe("ClaudeLiveBackend ingest", () => {
     );
     backend.acceptObserverEvent(delta("sub1", { type: "message_stop" }));
     backend.acceptObserverEvent(ended("sub1"));
-    await flush(160);
+    await fixture.settled();
     const after = await backend.page(sessionId, 0, 10, "nice");
     expect(after.total).toBe(before.total);
     expect(JSON.stringify(after.events)).not.toContain("from the subagent");
@@ -168,7 +167,7 @@ describe("ClaudeLiveBackend ingest", () => {
     );
     backend.acceptObserverEvent(delta("sum1", { type: "message_stop" }));
     backend.acceptObserverEvent(ended("sum1"));
-    await flush(160);
+    await fixture.settled();
     const after = await backend.page(sessionId, 0, 10, "nice");
     expect(after.total).toBe(before.total);
     expect(JSON.stringify(after.events)).not.toContain("continued from a previous conversation");
@@ -183,12 +182,12 @@ describe("ClaudeLiveBackend ingest", () => {
     expect(backend.compactionSummary(sessionId)).toBeNull();
 
     backend.acceptObserverEvent(flowEvent("sum2", "/v1/messages", "api.anthropic.com", "summariser1"));
-    await flush(160);
+    await fixture.settled();
     expect(backend.compactionSummary(sessionId)).not.toBeNull();
     expect(seen).toEqual([[sessionId, true]]);
 
     backend.acceptObserverEvent(ended("sum2"));
-    await flush(40);
+    await fixture.settled();
     expect(backend.compactionSummary(sessionId)).toBeNull();
     expect(seen).toEqual([
       [sessionId, true],
@@ -200,7 +199,7 @@ describe("ClaudeLiveBackend ingest", () => {
     // for minutes, so that repeat re-read the body and started the same compaction again after it
     // was over -- and the notice then stayed up until a fifteen-minute timer took it down.
     backend.acceptObserverEvent(flowEvent("sum2", "/v1/messages", "api.anthropic.com", "summariser1"));
-    await flush(160);
+    await fixture.settled();
     expect(backend.compactionSummary(sessionId)).toBeNull();
     expect(seen).toEqual([
       [sessionId, true],
@@ -226,7 +225,7 @@ describe("ClaudeLiveBackend ingest", () => {
         }),
       );
     }
-    await flush(160);
+    await fixture.settled();
     backend.acceptObserverEvent(
       delta("sum3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "!" } }),
     );
@@ -235,7 +234,7 @@ describe("ClaudeLiveBackend ingest", () => {
     );
     expect(seen).toEqual([[sessionId, true]]);
     backend.acceptObserverEvent(ended("sum3"));
-    await flush(40);
+    await fixture.settled();
     expect(backend.compactionSummary(sessionId)).toBeNull();
     stop();
   });
@@ -295,7 +294,7 @@ describe("ClaudeLiveBackend ingest", () => {
     );
     local.acceptObserverEvent(delta("fb", { type: "content_block_stop", index: 0 }));
     local.acceptObserverEvent(delta("fb", { type: "message_stop" }));
-    await flush(160);
+    await fixture.settled();
     const page = await local.page("sess-bash1", 0, 10, "nice");
     const block = page.events[0]!.blocks[0]!;
     expect(block.kind).toBe("tool_use");
@@ -307,7 +306,7 @@ describe("ClaudeLiveBackend ingest", () => {
   test("tool results carried in the follow-up request body become user events", async () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("t1", "/v1/messages", "api.anthropic.com", "tool1"));
-    await flush(80);
+    await fixture.settled();
     const page = await local.page("sess-tool1", 0, 10, "nice");
     expect(page.total).toBe(1);
     const user = page.events[0]!;
@@ -328,7 +327,7 @@ describe("ClaudeLiveBackend ingest", () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     const startedAt = "2026-09-16T01:06:31.873Z";
     local.acceptObserverEvent(flowEvent("t2", "/v1/messages", "api.anthropic.com", "tool1", undefined, startedAt));
-    await flush(80);
+    await fixture.settled();
 
     const page = await local.page("sess-tool1", 0, 10, "nice");
     expect(page.events[0]!.ts).toBe(Date.parse(startedAt));
@@ -341,7 +340,7 @@ describe("ClaudeLiveBackend ingest", () => {
     const before = Date.now();
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("t3", "/v1/messages", "api.anthropic.com", "tool1"));
-    await flush(80);
+    await fixture.settled();
 
     const page = await local.page("sess-tool1", 0, 10, "nice");
     expect(page.events[0]!.ts).toBeGreaterThanOrEqual(before);
@@ -351,7 +350,7 @@ describe("ClaudeLiveBackend ingest", () => {
   test("subscribers receive upsert envelopes as deltas land", async () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("f3", "/v1/messages", "api.anthropic.com", "b3"));
-    await flush(160);
+    await fixture.settled();
     const envelopes: Array<{ kind: string; phase: string; text: string; revision: number }> = [];
     await local.subscribe("sess-b3", 0, (envelope) => {
       const event = envelope.events[0];
@@ -371,7 +370,7 @@ describe("ClaudeLiveBackend ingest", () => {
       delta("f3", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "b" } }),
     );
     local.acceptObserverEvent(delta("f3", { type: "message_stop" }));
-    await flush(40);
+    await fixture.settled();
     const last = envelopes.at(-1);
     expect(last?.kind).toBe("upsert");
     expect(last?.text).toBe("ab");
@@ -388,7 +387,7 @@ describe("the context tier a live request asked for", () => {
   const usageOf = async (flowId: string, bodyRef: string, headers: { name: string; value: string }[]) => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent(flowId, "/v1/messages", "api.anthropic.com", bodyRef, headers));
-    await flush(80);
+    await fixture.settled();
     local.acceptObserverEvent(
       delta(flowId, {
         type: "message_start",
@@ -396,7 +395,7 @@ describe("the context tier a live request asked for", () => {
       }),
     );
     local.acceptObserverEvent(delta(flowId, { type: "message_stop" }));
-    await flush(40);
+    await fixture.settled();
     const usage = local.sessionUsage(`sess-${bodyRef}`);
     await local.dispose();
     return usage;
@@ -424,9 +423,9 @@ describe("the context tier a live request asked for", () => {
   test("a flow whose headers never arrived does not shrink a session already known to be 1M", async () => {
     const local = new ClaudeLiveBackend(fixture.url, true, 8);
     local.acceptObserverEvent(flowEvent("ftier3", "/v1/messages", "api.anthropic.com", "tier3", [LONG_CONTEXT_BETAS]));
-    await flush(80);
+    await fixture.settled();
     local.acceptObserverEvent(flowEvent("ftier4", "/v1/messages", "api.anthropic.com", "tier3"));
-    await flush(80);
+    await fixture.settled();
     local.acceptObserverEvent(
       delta("ftier4", {
         type: "message_start",
@@ -434,7 +433,7 @@ describe("the context tier a live request asked for", () => {
       }),
     );
     local.acceptObserverEvent(delta("ftier4", { type: "message_stop" }));
-    await flush(40);
+    await fixture.settled();
 
     // Every request of a session carries the same beta list, so a flow that named none is one this
     // mirror failed to read rather than a session that changed tier.

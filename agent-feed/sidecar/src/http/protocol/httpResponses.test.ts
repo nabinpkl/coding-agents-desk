@@ -1,47 +1,64 @@
-import { expect, test } from "bun:test";
-import { encodeServerSentEvent, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import { afterEach, expect, jest, test } from "bun:test";
+import { encodeServerSentEvent, SSE_HEARTBEAT_MS, startServerSentEventStream } from "@/http/protocol/httpResponses";
+import { drained } from "@/testing/until";
 
 const server = { timeout() {} } as never;
 
-/** Reads what a stream writes for `ms`, then leaves it. */
-async function readFor(response: Response, ms: number): Promise<string> {
+// The beat is a timer, so these run on fake time and move the clock to it rather than waiting.
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+/**
+ * Asks what the stream has written since the last ask, or null when it has written nothing. A chunk
+ * already queued is read within the promise turns `drained` waits out, so losing that race means
+ * there is none -- and the read that lost is kept for the next ask rather than left to take its chunk.
+ */
+function writes(response: Response): { next(): Promise<string | null>; leave(): Promise<void> } {
   const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    const next = await Promise.race([reader.read(), Bun.sleep(Math.max(0, deadline - Date.now())).then(() => null)]);
-    if (next === null || next.done) break;
-    text += decoder.decode(next.value, { stream: true });
-  }
-  await reader.cancel();
-  return text;
+  let pending: ReturnType<typeof reader.read> | null = null;
+  return {
+    async next() {
+      pending ??= reader.read();
+      const read = await Promise.race([pending, drained().then(() => null)]);
+      if (read === null) return null;
+      pending = null;
+      return read.done ? null : new TextDecoder().decode(read.value);
+    },
+    leave: () => reader.cancel(),
+  };
 }
 
 test("a stream that asks for a heartbeat message beats with it rather than a comment", async () => {
   // A comment is invisible to `EventSource`, so a reader timing silence needs the beat to be a
   // message it actually receives.
+  jest.useFakeTimers();
   const bytes = encodeServerSentEvent({ type: "heartbeat" });
   const response = startServerSentEventStream(new Request("http://localhost/stream"), server, () => () => {}, {
     heartbeat: { bytes, intervalMs: 20 },
   });
+  const stream = writes(response);
 
-  const text = await readFor(response, 70);
+  jest.advanceTimersByTime(20);
+  const text = await stream.next();
+  await stream.leave();
 
-  expect(text).toContain('data: {"type":"heartbeat"}\n\n');
-  expect(text).not.toContain(": ping");
+  expect(text).toBe('data: {"type":"heartbeat"}\n\n');
 });
 
 test("a stream that asks for nothing still beats with a comment", async () => {
   // The default is untouched: every other stream's readers parse `data:` as their own messages,
   // and a heartbeat message they do not know would reach them as one.
+  jest.useFakeTimers();
   const response = startServerSentEventStream(new Request("http://localhost/stream"), server, () => () => {});
-  const reader = response.body!.getReader();
-  // Nothing is written before the first beat, and the default beat is 20s away.
-  const first = await Promise.race([reader.read(), Bun.sleep(30).then(() => null)]);
-  await reader.cancel();
+  const stream = writes(response);
+  // Nothing is written before the first beat, and the default beat is a while away.
+  jest.advanceTimersByTime(SSE_HEARTBEAT_MS - 1);
+  expect(await stream.next()).toBeNull();
 
-  expect(first).toBeNull();
+  jest.advanceTimersByTime(1);
+  expect(await stream.next()).toBe(": ping\n\n");
+  await stream.leave();
 });
 
 test("a reader that leaves releases what the stream subscribed to, exactly once", async () => {

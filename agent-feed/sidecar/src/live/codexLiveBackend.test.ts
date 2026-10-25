@@ -6,11 +6,13 @@ import type { ObserverEvent } from "@/live/claudeNetworkSource";
 import { state } from "@/transcripts/transcriptState";
 import { sessionKey } from "@/transcripts/catalog/transcriptCatalog";
 import { summarizeToolUse } from "@/transcripts/codex/codexPayloads";
+import { drained } from "@/testing/until";
 
 const FIXTURE_PATH = resolve(import.meta.dir, "fixtures/codexDesktopLiveFixture.jsonl");
 const SESSION_ID = "019fe292-5466-7393-b931-8bf0c2cece82";
 
-const flush = (ms = 20): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+// Binding is synchronous here -- the session id rides in the headers -- so what an event sets off
+// is in memory, and `drained` sees it through.
 
 function loadFixtureEvents(): ObserverEvent[] {
   const events: ObserverEvent[] = [];
@@ -217,7 +219,7 @@ describe("CodexLiveBackend targeted ingest", () => {
   test("streams a turn incrementally to subscribers and closes it on streamEnded", async () => {
     const backend = new CodexLiveBackend(new URL("http://127.0.0.1:9"), true, 8);
     backend.acceptObserverEvent(upsertEvent("f1"));
-    await flush();
+    await drained();
     const phases: string[] = [];
     const texts: string[] = [];
     await backend.subscribe(SESSION_ID, 0, (envelope) => {
@@ -245,11 +247,11 @@ describe("CodexLiveBackend targeted ingest", () => {
     backend.acceptObserverEvent(
       messageEvent("f1", { type: "response.output_text.delta", item_id: "msg_456", delta: "lo" }),
     );
-    await flush();
+    await drained();
     expect(texts.at(-1)).toBe("Hello");
     expect(phases.at(-1)).toBe("streaming");
     backend.acceptObserverEvent(endedEvent("f1"));
-    await flush();
+    await drained();
     const page = await backend.page(SESSION_ID, 0, 10, "nice");
     const textRow = page.events.find((event) =>
       event.blocks.some((block) => block.kind === "text" && block.text === "Hello"),
@@ -275,7 +277,7 @@ describe("CodexLiveBackend targeted ingest", () => {
         ],
       }),
     );
-    await flush();
+    await drained();
     const page = await backend.page(SESSION_ID, 0, 10, "nice");
     const row = page.events.find((event) =>
       event.blocks.some((block) => block.kind === "tool_result" && block.callId === "call_abc"),
@@ -297,7 +299,7 @@ describe("CodexLiveBackend targeted ingest", () => {
     backend.acceptObserverEvent(
       messageEvent("h1", { type: "response.output_text.done", item_id: "msg_abc", text: "hi" }),
     );
-    await flush();
+    await drained();
     const page = await backend.page(SESSION_ID, 0, 10, "nice");
     const row = page.events.find((event) => event.messageId === "msg_abc");
     expect(row).toBeDefined();
@@ -344,7 +346,7 @@ describe("CodexLiveBackend lazy attach", () => {
     backend.acceptObserverEvent(
       messageEvent("j1", { type: "response.output_text.delta", item_id: "msg_j1", delta: "attached" }),
     );
-    await flush();
+    await drained();
     expect(received).toEqual(["attached"]);
     await backend.dispose();
   });

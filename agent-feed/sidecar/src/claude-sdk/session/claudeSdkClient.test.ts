@@ -8,6 +8,7 @@ import { PROTOCOL_VERSION, runnerBuild, runnerSocketPath } from "@/claude-sdk/cl
 import { ClaudeSdkRunner, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
 import { serveRunner } from "@/claude-sdk/claudeSdkRunnerServer";
 import { answerOutcome, commandOutcome } from "@/claude-sdk/claudeSdkRoutes";
+import { until } from "@/testing/until";
 
 // Short and under /tmp: a socket path past about 104 bytes fails to bind with nothing to say why.
 const work = mkdtempSync("/tmp/sdkc-");
@@ -117,7 +118,7 @@ describe("following a session", () => {
     expect(heard.at(-1)).toBe(true);
     await session.stop();
     // The runner going away is said too, so a card does not go on showing a question nobody holds.
-    for (let tries = 0; heard.at(-1) !== false && tries < 50; tries += 1) await Bun.sleep(10);
+    await until(() => heard.at(-1) === false, "the runner going away to be heard");
     expect(heard.at(-1)).toBe(false);
     stop();
   });
@@ -162,9 +163,9 @@ describe("what a runner streams", () => {
     });
     const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
     session.fake().send({ type: "stream_event", event: { type: "message_start" }, parent_tool_use_id: null });
-    for (let tries = 0; heard.length === 0 && tries < 50; tries += 1) await Bun.sleep(10);
+    await until(() => heard.length > 0, "the stream event to be heard");
     await session.stop();
-    for (let tries = 0; !heard.includes("gone") && tries < 50; tries += 1) await Bun.sleep(10);
+    await until(() => heard.includes("gone"), "the runner going away to be heard");
     expect(heard).toEqual(["true message_start", "gone"]);
     followed.stop();
   });
@@ -179,8 +180,10 @@ describe("the choices a runner was launched with", () => {
     expect(followed.state).toMatchObject({ model: "haiku", effort: "max", permissionMode: "auto" });
     expect(await client.choices(session.sessionId)).toEqual({ model: "haiku", effort: "max" });
     expect(await client.command(session.sessionId, { type: "set-model", model: "opus" })).toEqual({ ok: true });
-    for (let tries = 0; (await client.choices(session.sessionId)).model !== "opus" && tries < 50; tries += 1)
-      await Bun.sleep(10);
+    await until(
+      async () => (await client.choices(session.sessionId)).model === "opus",
+      "the model change to be read back",
+    );
     expect(await client.choices(session.sessionId)).toEqual({ model: "opus", effort: "max" });
     followed.stop();
     await session.stop();
@@ -214,7 +217,7 @@ describe("a prompt larger than one socket write", () => {
       images: [{ mediaType: "image/png", data }],
     });
     expect(reply).toEqual({ ok: true });
-    for (let tries = 0; session.fake().received.length === 0 && tries < 50; tries += 1) await Bun.sleep(10);
+    await until(() => session.fake().received.length > 0, "the message to reach the runner");
     const content = session.fake().received[0]?.message.content as { source?: { data: string } }[];
     expect(content[0]?.source?.data).toBe(data);
     // And the connection still reads: the next command is answered, not glued to a leftover.
@@ -233,8 +236,10 @@ describe("the effort a session runs at", () => {
     // Idle too: the CLI answering is what says it is up, where its `init` waits for a first turn.
     expect(followed.state).toMatchObject({ effort: "high", model: "claude-opus-5-5", status: "idle" });
     expect(await client.command(session.sessionId, { type: "set-effort", effort: "max" })).toEqual({ ok: true });
-    for (let tries = 0; (await client.state(session.sessionId)).effort !== "max" && tries < 50; tries += 1)
-      await Bun.sleep(10);
+    await until(
+      async () => (await client.state(session.sessionId)).effort === "max",
+      "the effort change to be read back",
+    );
     expect((await client.state(session.sessionId)).effort).toBe("max");
     followed.stop();
     await session.stop();
@@ -253,7 +258,7 @@ describe("a runner on older code", () => {
     );
     const followed = await stateWhere(client, session.sessionId, (state) => state.connected);
     session.fake().send({ type: "system", subtype: "init", permissionMode: "auto" });
-    for (let tries = 0; stale.length < 2 && tries < 50; tries += 1) await Bun.sleep(10);
+    await until(() => stale.length >= 2, "two stale states to be heard");
     expect(stale.length).toBeGreaterThanOrEqual(2);
     expect(stale.every(Boolean)).toBe(true);
     expect(await client.command(session.sessionId, { type: "set-mode", mode: "plan" })).toEqual({ ok: true });

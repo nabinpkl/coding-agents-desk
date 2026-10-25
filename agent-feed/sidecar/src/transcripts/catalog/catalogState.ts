@@ -39,9 +39,10 @@ export const ROLLOUT_PATTERN = /^rollout-[\d-]+T[\d-]+-([0-9a-f-]{36})\.jsonl$/i
  * tells anyone.
  *
  * Codex and Pi already coalesced; Claude did not, so a running agent broadcast once
- * per line written, and every subscriber recomputed its whole view each time.
+ * per line written, and every subscriber recomputed its whole view each time. Exported so a test
+ * can move fake time by it.
  */
-const BROADCAST_COALESCE_MS = 40;
+export const BROADCAST_COALESCE_MS = 40;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
 
 const TRANSCRIPT_CAPABILITIES: AgentSessionCapabilities = {

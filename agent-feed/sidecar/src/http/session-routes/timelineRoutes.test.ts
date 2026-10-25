@@ -10,6 +10,7 @@ import type {
 import { state } from "@/transcripts/transcriptState";
 import { createTimelineRoutes } from "@/http/session-routes/timelineRoutes";
 import { TIMELINE_WINDOW } from "@/http/session-routes/timelineCheckpoint";
+import { drained, until } from "@/testing/until";
 
 const server = { timeout() {} } as never;
 
@@ -151,11 +152,9 @@ async function openTimeline(
 ): Promise<{ messages: TimelineMessage[]; leave: () => Promise<void> }> {
   const request = timelineRequest(query, source);
   const response = await route(request, new URL(request.url), server);
-  const read = await readMessages(response as Response, count);
-  // The snapshot resolves before the follow-on subscriptions are issued; give the
-  // rest of the open a turn before asserting on what it opened.
-  await Bun.sleep(5);
-  return read;
+  // The snapshot is sent before the follow-on subscriptions are issued, so a test that asserts
+  // on what the open subscribed to waits for that subscription itself.
+  return readMessages(response as Response, count);
 }
 
 /** The envelope of a timeline message, failing loudly on any other message type. */
@@ -220,6 +219,7 @@ test("the live stream is followed from the snapshot's sequence, so no row is sen
   const recorded = recorder();
   const { leave } = await openTimeline(routesFor(fakeBackend(250, recorded)));
 
+  await until(() => recorded.subscribeCalls.length > 0, "the timeline subscription");
   expect(recorded.subscribeCalls).toEqual([250]);
   await leave();
 });
@@ -313,14 +313,14 @@ test("a mirror that arrives after the stream opened still gets a tail, with no r
   const request = timelineRequest();
   const response = (await routesFor(backend)(request, new URL(request.url), server)) as Response;
   const reader = readMessages(response, 2);
-  await Bun.sleep(5);
+  // The extension UI is the last thing an open subscribes to, after the tail would have been.
+  await until(() => recorded.uiCalls > 0, "the open's last subscription");
   // The tail is the subscription that starts at zero. Nothing has one yet.
   expect(recorded.subscribeCalls).not.toContain(0);
 
   live = true;
   for (const listener of announce) listener("s1");
-  await Bun.sleep(5);
-  expect(recorded.subscribeCalls).toContain(0);
+  await until(() => recorded.subscribeCalls.includes(0), "the tail subscription");
 
   publish(liveEnvelope([liveRow(4, "assistant", "streaming")], 1));
   const { messages, leave } = await reader;
@@ -338,7 +338,7 @@ test("opening the tail lands on the newest row the projection holds, not its old
   const request = timelineRequest();
   const response = (await routesFor(backend)(request, new URL(request.url), server)) as Response;
   const reader = readMessages(response, 2);
-  await Bun.sleep(5);
+  await until(() => recorded.subscribeCalls.includes(0), "the tail subscription");
 
   publish(liveEnvelope([liveRow(3, "assistant", "complete"), liveRow(4, "assistant", "streaming")], 1));
   const { messages, leave } = await reader;
@@ -358,7 +358,7 @@ test("a run-state change does not blank the message being written", async () => 
   // become a third tail, so the run that still carries the bug reads `[7, null]` here
   // rather than hanging.
   const reader = readMessages(response, 3);
-  await Bun.sleep(5);
+  await until(() => recorded.subscribeCalls.includes(0), "the tail subscription");
 
   publish(liveEnvelope([liveRow(7, "assistant", "streaming")], 1));
   publish(liveEnvelope([], 2));
@@ -382,7 +382,7 @@ test("a tool result revised after the next message started does not take the tai
   // The snapshot plus the three tails a correct run emits; the run that carries the bug
   // emits four and still resolves, on `[8, 9, 8]`.
   const reader = readMessages(response, 4);
-  await Bun.sleep(5);
+  await until(() => recorded.subscribeCalls.includes(0), "the tail subscription");
 
   publish(liveEnvelope([liveRow(8, "user", "complete")], 1));
   publish(liveEnvelope([liveRow(9, "assistant", "streaming")], 2));
@@ -398,6 +398,7 @@ test("extension UI opens for a session that serves it", async () => {
   const recorded = recorder();
   const { leave } = await openTimeline(routesFor(fakeBackend(1, recorded)));
 
+  await until(() => recorded.uiCalls > 0, "the extension UI subscription");
   expect(recorded.uiCalls).toBe(1);
   await leave();
 });
@@ -417,6 +418,10 @@ test("a session that serves no extension UI opens no UI stream", async () => {
   });
   const { leave } = await openTimeline(routesFor(backend));
 
+  // The UI would be asked for once the timeline subscription is in place. The fakes answer in
+  // memory, so once that subscription exists, draining the queued turns finishes the open.
+  await until(() => recorded.subscribeCalls.length > 0, "the timeline subscription");
+  await drained();
   expect(recorded.uiCalls).toBe(0);
   await leave();
 });
@@ -424,8 +429,9 @@ test("a session that serves no extension UI opens no UI stream", async () => {
 test("leaving the thread tears down every stream it opened", async () => {
   const recorded = recorder();
   const { leave } = await openTimeline(routesFor(fakeBackend(1, recorded)));
+  await until(() => recorded.uiCalls > 0, "the extension UI subscription");
   await leave();
-  await Bun.sleep(5);
+  await until(() => recorded.stopped.length === 2, "both streams to stop");
 
   expect(recorded.stopped.sort()).toEqual(["timeline", "ui"]);
 });

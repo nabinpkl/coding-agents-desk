@@ -12,11 +12,40 @@
 // reader touched a Bot themselves, because that was the only thing that moved the revision.
 import { expect, test } from "bun:test";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
+import type { BotRegistry } from "@/bots/botRegistry";
+import type { BotSnapshot } from "@agentdesk/agent-feed-wire";
+import { until } from "@/testing/until";
 
 const { addBot, addSessions, fixture, notifyCatalog, sessions, startingCatalog, summary } = botRegistryHarness();
 
-/** The emit is queued on a promise chain and reads the store, so it lands a tick or two later. */
-const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 10));
+// An emit is queued on one promise chain per subscriber and reads the store, so it lands some turns
+// after the change. A test waits for the emission it expects. One that expects NOTHING makes a
+// marker change afterwards and waits for that instead: the chain runs in order, so once the marker
+// has arrived, everything heard before it has been dealt with and anything it was going to say is
+// already said. A fixed wait here failed under load (2026-10-19).
+
+/** A change a "store" subscriber is woken for: one more reference on the Bot in `projectPath`. */
+async function attach(registry: BotRegistry, botId: string, projectPath: string, sessionId: string): Promise<void> {
+  sessions.set(`pi:${sessionId}`, { projectPath, summary: summary({ source: "pi", sessionId }) });
+  await addSessions(
+    registry,
+    botId,
+    { requestId: sessionId, sessionRefs: [{ source: "pi", sessionId }] },
+    { kind: "user" },
+  );
+}
+
+/** Whether a snapshot is the one `attach` caused. Waiting on a count would let a stray emission pass for it. */
+function marked(snapshot: BotSnapshot): boolean {
+  return snapshot.bots.some((bot) => bot.sessions.some((session) => session.sessionId === "marker"));
+}
+
+/** A change a "view" subscriber is woken for: the session's title. */
+function retitle(title: string): void {
+  const held = sessions.get("pi:session-1")!;
+  sessions.set("pi:session-1", { ...held, summary: { ...held.summary, title } });
+  notifyCatalog();
+}
 
 async function aBotWithASession() {
   const world = await fixture();
@@ -35,7 +64,7 @@ async function aBotWithASession() {
 }
 
 test("a subscriber is woken once for the current state, and not again for session churn", async () => {
-  const { registry, bot } = await aBotWithASession();
+  const { registry, bot, project } = await aBotWithASession();
   await addSessions(
     registry,
     bot.botId,
@@ -43,22 +72,23 @@ test("a subscriber is woken once for the current state, and not again for sessio
     { kind: "user" },
   );
 
-  const seen: number[] = [];
-  const stop = await registry.subscribe((snapshot) => seen.push(snapshot.revision));
+  const seen: BotSnapshot[] = [];
+  const stop = await registry.subscribe((snapshot) => seen.push(snapshot));
   expect(seen).toHaveLength(1);
 
   // The catalog moves constantly and no Bot changed: a session's state, its token count, its last
   // activity. None of that changes the Bot list, so a subscriber has nothing to do about it.
   for (let i = 0; i < 25; i += 1) notifyCatalog();
-  await settle();
-  expect(seen).toHaveLength(1);
+  await attach(registry, bot.botId, project, "marker");
+  await until(() => seen.some(marked), "the marker's emission");
+  expect(seen).toHaveLength(2);
   stop();
 });
 
 test("a real change still gets through, because every one of them bumps the revision", async () => {
   const { registry, bot, project } = await aBotWithASession();
-  const seen: number[] = [];
-  const stop = await registry.subscribe((snapshot) => seen.push(snapshot.revision));
+  const seen: BotSnapshot[] = [];
+  const stop = await registry.subscribe((snapshot) => seen.push(snapshot));
   const before = seen.length;
 
   // Attaching a session changes what the hub would publish for this Bot: its sessionIds.
@@ -68,25 +98,26 @@ test("a real change still gets through, because every one of them bumps the revi
     { requestId: "r2", sessionRefs: [{ source: "pi", sessionId: "session-1" }] },
     { kind: "user" },
   );
-  await settle();
+  await until(() => seen.length > before, "the attach's emission");
   expect(seen.length).toBe(before + 1);
-  expect(seen.at(-1)).toBeGreaterThan(seen[before - 1]!);
+  expect(seen.at(-1)!.revision).toBeGreaterThan(seen[before - 1]!.revision);
 
   // And a session that changes nothing about the Bot does not, even though it is the same session
   // doing the changing.
   notifyCatalog();
-  await settle();
-  expect(seen).toHaveLength(before + 1);
+  await attach(registry, bot.botId, project, "marker");
+  await until(() => seen.some(marked), "the marker's emission");
+  expect(seen).toHaveLength(before + 2);
   stop();
   expect(project).toBeTruthy();
 });
 
 test("a second Bot appears exactly once, not once per subscriber-visible event", async () => {
   const world = await fixture();
-  const seen: number[] = [];
-  const stop = await world.registry.subscribe((snapshot) => seen.push(snapshot.revision));
+  const seen: BotSnapshot[] = [];
+  const stop = await world.registry.subscribe((snapshot) => seen.push(snapshot));
 
-  await addBot(
+  const second = await addBot(
     world.registry,
     {
       requestId: "r1",
@@ -97,13 +128,12 @@ test("a second Bot appears exactly once, not once per subscriber-visible event",
     },
     { kind: "user" },
   );
-  await settle();
-  expect(seen).toHaveLength(2);
 
   // Churn afterwards, including on a session that exists in the catalog from the start.
   notifyCatalog();
-  await settle();
-  expect(seen).toHaveLength(2);
+  await attach(world.registry, second.botId, world.secondProject, "marker");
+  await until(() => seen.some(marked), "the marker's emission");
+  expect(seen).toHaveLength(3);
   stop();
 });
 
@@ -111,6 +141,9 @@ test("unsubscribed means unsubscribed, so a stopped publisher stops being woken"
   const { registry, bot } = await aBotWithASession();
   const seen: number[] = [];
   const stop = await registry.subscribe((snapshot) => seen.push(snapshot.revision));
+  // Still subscribed, so it shows the change below was published to whoever was listening.
+  const witnessed: number[] = [];
+  const stopWitness = await registry.subscribe((snapshot) => witnessed.push(snapshot.revision));
   stop();
   await addSessions(
     registry,
@@ -119,8 +152,9 @@ test("unsubscribed means unsubscribed, so a stopped publisher stops being woken"
     { kind: "user" },
   );
   notifyCatalog();
-  await settle();
+  await until(() => witnessed.length > 1, "the witness's emission");
   expect(seen).toHaveLength(1);
+  stopWitness();
   expect(summary).toBeTruthy();
 });
 
@@ -156,15 +190,19 @@ test("nothing is said about a Bot until the catalog has been read, and then it i
     { onChange: "view" },
   );
   const asked = registry.snapshot();
+  // Nothing to wait for: the subscription is still waiting on the catalog, so it is not listening.
   notifyCatalog();
-  await settle();
   expect(drawn).toEqual([]);
 
   sessions.set("pi:session-1", held);
   read();
   const stop = await subscribed;
-  await settle();
-  expect(drawn).toEqual([{ sessions: 1, missing: 0 }]);
+  retitle("marker");
+  await until(() => drawn.length > 1, "the marker's emission");
+  expect(drawn).toEqual([
+    { sessions: 1, missing: 0 },
+    { sessions: 1, missing: 0 },
+  ]);
   expect((await asked).bots[0]!.missingSessionRefs).toEqual([]);
   stop();
 });
@@ -184,7 +222,7 @@ test("a subscriber drawing the view is told when a reference stops resolving", a
   // row, which is the thing it exists to draw.
   sessions.delete("pi:session-1");
   notifyCatalog();
-  await settle();
+  await until(() => drawn.length > 1, "the missing row's emission");
   expect(drawn.at(-1)).toEqual([1]);
   stop();
 });
@@ -202,10 +240,10 @@ test("and told when it resolves again, which is the half the bug dropped", async
 
   sessions.delete("pi:session-1");
   notifyCatalog();
-  await settle();
+  await until(() => drawn.length > before, "the missing row's emission");
   sessions.set("pi:session-1", held);
   notifyCatalog();
-  await settle();
+  await until(() => drawn.length > before + 1, "the resolved row's emission");
 
   // Two emissions, not one. A subscriber told only that the row appeared is left showing a session
   // the machine has, and that is the state this whole file exists because of.
@@ -220,16 +258,19 @@ test("a view subscriber is not woken by writes inside the minute a card already 
   // it was has nothing new to draw.
   const { registry } = await aBotHoldingAResolvableReference();
   const held = sessions.get("pi:session-1")!;
-  const woken: number[] = [];
-  const stop = await registry.subscribe(() => woken.push(1), undefined, { onChange: "view" });
+  const woken: string[] = [];
+  const stop = await registry.subscribe((snapshot) => woken.push(snapshot.bots[0]!.sessions[0]!.title), undefined, {
+    onChange: "view",
+  });
   woken.length = 0;
 
   for (const lastEventAt of [5_000, 30_000, 59_999]) {
     sessions.set("pi:session-1", { ...held, summary: { ...held.summary, lastEventAt } });
     notifyCatalog();
   }
-  await settle();
-  expect(woken).toEqual([]);
+  retitle("marker");
+  await until(() => woken.length > 0, "the marker's emission");
+  expect(woken).toEqual(["marker"]);
   stop();
 });
 
@@ -251,10 +292,10 @@ test("a view subscriber IS woken when the minute or the activity a card shows mo
 
   sessions.set("pi:session-1", { ...held, summary: { ...held.summary, lastEventAt: 61_000 } });
   notifyCatalog();
-  await settle();
+  await until(() => drawn.length > before, "the new minute's emission");
   sessions.set("pi:session-1", { ...held, summary: { ...held.summary, lastEventAt: 61_000, activity: "live" } });
   notifyCatalog();
-  await settle();
+  await until(() => drawn.length > before + 1, "the new activity's emission");
 
   expect(drawn.slice(before)).toEqual([`${held.summary.activity}@61000`, "live@61000"]);
   stop();
@@ -275,7 +316,7 @@ test("a view subscriber IS woken by a rename, which is a value change and not a 
 
   sessions.set("pi:session-1", { ...held, summary: { ...held.summary, title: "What I called it" } });
   notifyCatalog();
-  await settle();
+  await until(() => drawn.length > before, "the rename's emission");
   expect(drawn.length).toBe(before + 1);
   expect(drawn.at(-1)).toBe("What I called it");
 
@@ -286,8 +327,9 @@ test("a view subscriber IS woken by a rename, which is a value change and not a 
     summary: { ...held.summary, title: "What I called it", lastEventAt: 99 },
   });
   notifyCatalog();
-  await settle();
-  expect(drawn).toHaveLength(before + 1);
+  retitle("marker");
+  await until(() => drawn.length > before + 1, "the marker's emission");
+  expect(drawn.slice(before)).toEqual(["What I called it", "marker"]);
   stop();
 });
 
@@ -307,29 +349,33 @@ test("a view subscriber IS woken by a new task block, which the card draws under
   const block = { task: "fix the lag", lines: [], at: 1000 };
   sessions.set("pi:session-1", { ...held, summary: { ...held.summary, taskState: block } });
   notifyCatalog();
-  await settle();
+  await until(() => drawn.length > before, "the task block's emission");
   expect(drawn.length).toBe(before + 1);
   expect(drawn.at(-1)).toBe("fix the lag");
 
   // The same block read again on a later write is not a change.
   sessions.set("pi:session-1", { ...held, summary: { ...held.summary, taskState: block, lastEventAt: 99 } });
   notifyCatalog();
-  await settle();
-  expect(drawn).toHaveLength(before + 1);
+  const marker = { task: "marker", lines: [], at: 2000 };
+  sessions.set("pi:session-1", { ...held, summary: { ...held.summary, taskState: marker, lastEventAt: 99 } });
+  notifyCatalog();
+  await until(() => drawn.length > before + 1, "the marker's emission");
+  expect(drawn.slice(before)).toEqual(["fix the lag", "marker"]);
   stop();
 });
 
 test('a "store" subscriber is still not woken by a reference resolving either', async () => {
   // The other half of the same fix: the hub's flood protection is unchanged, because a reference
   // appearing or disappearing says nothing about a Bot's membership.
-  const { registry } = await aBotHoldingAResolvableReference();
-  const woken: number[] = [];
-  const stop = await registry.subscribe(() => woken.push(1));
+  const { registry, bot, project } = await aBotHoldingAResolvableReference();
+  const woken: BotSnapshot[] = [];
+  const stop = await registry.subscribe((snapshot) => woken.push(snapshot));
   woken.length = 0;
 
   sessions.delete("pi:session-1");
   notifyCatalog();
-  await settle();
-  expect(woken).toEqual([]);
+  await attach(registry, bot.botId, project, "marker");
+  await until(() => woken.some(marked), "the marker's emission");
+  expect(woken).toHaveLength(1);
   stop();
 });

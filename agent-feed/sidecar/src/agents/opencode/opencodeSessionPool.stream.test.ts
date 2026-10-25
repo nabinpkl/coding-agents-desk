@@ -5,10 +5,11 @@
 // produces its own row, in order, with the text so far -- and none of them costs a fetch of the
 // message history. The fake serve counts those fetches, because before this each delta bought
 // one (coalesced into a re-read that arrived later than the words it was re-reading for).
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, jest } from "bun:test";
 import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import type { TimelineEnvelope } from "@/agents/liveAgentProjection";
-import { OpencodeSessionPool } from "@/agents/opencode/opencodeSessionPool";
+import { OpencodeSessionPool, REFRESH_COALESCE_MS } from "@/agents/opencode/opencodeSessionPool";
+import { drained } from "@/testing/until";
 import type { SessionMessageInfo as SessionMessage } from "@opencode/client";
 
 const CAPABILITIES = {
@@ -38,6 +39,7 @@ interface Harness {
 const realFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = realFetch;
+  jest.useRealTimers();
 });
 
 /**
@@ -125,14 +127,15 @@ async function openAndWatch(h: Harness): Promise<() => void> {
   return h.pool.subscribe("s1", 0, () => {});
 }
 
-/** Polls rather than sleeping a fixed span: refreshes are coalesced and fetched a macrotask away. */
-async function waitFor(done: () => boolean): Promise<void> {
-  const started = Date.now();
-  for (;;) {
-    if (done()) return;
-    if (Date.now() - started > 5000) throw new Error("waitFor: condition never became true");
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+/**
+ * The pool's coalesced re-read of the serve, fired and finished, for a test on fake time: the clock
+ * moves by `REFRESH_COALESCE_MS` rather than that long passing for real. Everything else here is in
+ * memory -- the serve's events and its fetches -- so `drained`, which is not a timer, finishes it.
+ */
+async function reread(): Promise<void> {
+  await drained();
+  jest.advanceTimersByTime(REFRESH_COALESCE_MS);
+  await drained();
 }
 
 describe("the opencode pool, streaming a turn", () => {
@@ -154,8 +157,8 @@ describe("the opencode pool, streaming a turn", () => {
       type: "session.text.ended",
       data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, text: "one two" },
     });
-    // The serve re-read is a macrotask away; give the event loop a turn.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The events reach the pool through an in-memory stream.
+    await drained();
 
     const page = await h.pool.page("s1", 0, 10);
     expect(page.events).toHaveLength(1);
@@ -170,6 +173,7 @@ describe("the opencode pool, streaming a turn", () => {
   });
 
   it("settles the streamed row in place when the step's read brings the durable message", async () => {
+    jest.useFakeTimers();
     const h = harness();
     const stop = await openAndWatch(h);
     h.push({ type: "session.reasoning.started", data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0 } });
@@ -177,7 +181,7 @@ describe("the opencode pool, streaming a turn", () => {
       type: "session.reasoning.delta",
       data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "thinking" },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await drained();
     const streamed = await h.pool.page("s1", 0, 10);
     expect(streamed.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "thinking" }]);
 
@@ -196,7 +200,7 @@ describe("the opencode pool, streaming a turn", () => {
       } as unknown as SessionMessage,
     ]);
     h.push({ type: "session.step.ended", data: { sessionID: "s1", assistantMessageID: "msg-1", finish: "stop" } });
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await reread();
 
     const settled = await h.pool.page("s1", 0, 10);
     expect(settled.total).toBe(1);
@@ -217,6 +221,7 @@ describe("the opencode pool, streaming a turn", () => {
     // live turn: the row drew as a thinking line, went text-only at the next delta, and the
     // thinking came back when the step ended. The row a reader is following must not lose what
     // it already had.
+    jest.useFakeTimers();
     const h = harness();
     const stop = await openAndWatch(h);
     h.settle([
@@ -233,7 +238,7 @@ describe("the opencode pool, streaming a turn", () => {
       } as unknown as SessionMessage,
     ]);
     h.push({ type: "session.step.started", data: { sessionID: "s1", assistantMessageID: "msg-1" } });
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await reread();
     const drawn = await h.pool.page("s1", 0, 10);
     expect(drawn.events[0]?.blocks).toEqual([{ kind: "reasoning", text: "" }]);
 
@@ -242,7 +247,7 @@ describe("the opencode pool, streaming a turn", () => {
       type: "session.text.delta",
       data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "the answer" },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await drained();
     const streamed = await h.pool.page("s1", 0, 10);
     // The thinking line is still there, and the text joined it rather than replacing the row.
     expect(streamed.events[0]?.blocks).toEqual([
@@ -271,7 +276,7 @@ describe("the opencode pool, streaming a turn", () => {
       type: "session.text.delta",
       data: { sessionID: "s1", assistantMessageID: "msg-1", ordinal: 0, delta: "stale" },
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await drained();
     const page = await h.pool.page("s1", 0, 10);
     expect(page.events[0]?.blocks).toEqual([{ kind: "text", text: "the whole answer" }]);
     expect(page.events[0]?.phase).toBe("complete");
@@ -285,6 +290,7 @@ describe("the opencode pool, streaming a turn", () => {
     // the next `session.get` names the new model, but the message set is untouched -- so the
     // refresh published nothing, the per-envelope stamp had nothing to ride on, and the open
     // stream never heard. The announce is the envelope the stamp rides on.
+    jest.useFakeTimers();
     const h = harness();
     const seen: TimelineEnvelope[] = [];
     // What the HTTP layer would stamp, read at the moment each envelope is published. Measured
@@ -295,7 +301,8 @@ describe("the opencode pool, streaming a turn", () => {
       seen.push(envelope);
       stamped.push(h.pool.sessionModel("s1"));
     });
-    await waitFor(() => h.pool.sessionModel("s1") === "opencode-go/m");
+    await drained();
+    expect(h.pool.sessionModel("s1")).toBe("opencode-go/m");
     const before = seen.length;
 
     h.setServeModel("m2");
@@ -303,7 +310,8 @@ describe("the opencode pool, streaming a turn", () => {
       type: "session.model.selected",
       data: { sessionID: "s1", model: { providerID: "opencode-go", id: "m2" } },
     });
-    await waitFor(() => h.pool.sessionModel("s1") === "opencode-go/m2");
+    await reread();
+    expect(h.pool.sessionModel("s1")).toBe("opencode-go/m2");
 
     expect(seen.length).toBeGreaterThan(before);
     // The switch wrote no message, so the announcement carries no rows -- only the newer

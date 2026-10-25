@@ -4,11 +4,37 @@
 // The turn tests at the end are about the other exclusive thing: one push at a time per
 // session, because two would read the same box and both paste their whole text into it.
 
-import { expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import type { TmuxComposerEnvelope } from "@agentdesk/agent-feed-wire";
-import { CLOSE, END, OPEN, runtime, screenWith, settle, typed, watchable } from "@/input/tmuxComposerHarness";
+import { CLOSE, END, OPEN, runtime, screenWith, typed, watchable } from "@/input/tmuxComposerHarness";
 import { composerPanes, observeTmuxComposer, submitTmuxComposer, syncTmuxComposer } from "@/input/tmuxComposer";
+import { COALESCE_MS } from "@/input/tmuxComposerRuntime";
 import { TmuxUnavailable } from "@/terminal/tmux/tmuxSessions";
+import { drained, settleOnFakeTime } from "@/testing/until";
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+// The pane here is a fake in memory, so a watch's opening read is over once the queued promise
+// turns are: `drained`. What it reads after output waits out a coalescing window first, so a test
+// that writes runs on fake time and moves the clock across that window instead of sleeping past it.
+const opened = drained;
+
+async function outputRead(): Promise<void> {
+  await drained();
+  jest.advanceTimersByTime(COALESCE_MS);
+  await drained();
+}
+
+/**
+ * A push, on fake time. A push waits for the pane to show what it sent, polling until a redraw
+ * limit, and a fake pane that never redraws used to make each of these tests sit out that whole
+ * limit for real. Five milliseconds is the poll's own step; any step no longer than it lands the same.
+ */
+function pushed<T>(push: Promise<T>): Promise<T> {
+  return settleOnFakeTime(push, 5);
+}
 
 test("reports what the composer holds without waiting for the pane to write", async () => {
   // An idle pane writes nothing at all, so a watcher that only ever spoke on output would say
@@ -25,7 +51,7 @@ test("reports what the composer holds without waiting for the pane to write", as
     },
     tmux,
   );
-  await settle(60);
+  await opened();
   // One reading of the pane carries all of it: the box, whatever dialog stands in front of it,
   // and the mode its footer names. There is no dialog here, which is a statement rather than an
   // absence.
@@ -50,6 +76,7 @@ test("reports what the composer holds without waiting for the pane to write", as
 });
 
 test("a mode change reaches the panel though the box did not move", async () => {
+  jest.useFakeTimers();
   const { tmux, state, write } = watchable(["hello"]);
   const seen: TmuxComposerEnvelope[] = [];
   const stop = observeTmuxComposer(
@@ -62,29 +89,30 @@ test("a mode change reaches the panel though the box did not move", async () => 
     },
     tmux,
   );
-  await settle(60);
+  await opened();
 
   // Shift+Tab rewrites only the footer.
   state.footer = "⏵⏵ bypass permissions on (shift+tab to cycle)";
   write();
-  await settle(300);
+  await outputRead();
   expect(seen.map((reading) => reading.permissionMode)).toEqual(["auto", "bypassPermissions"]);
 
   // A screen with no footer on it says nothing about the mode, rather than that there is none.
   state.footer = "";
   write();
-  await settle(300);
+  await outputRead();
   expect(seen.at(-1)).not.toHaveProperty("permissionMode");
   stop();
 });
 
 test("reads once for a burst of output, not once per write", async () => {
+  jest.useFakeTimers();
   const { tmux, state, write } = watchable([""]);
   const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
-  await settle(60);
+  await opened();
   const before = state.screens;
   for (let i = 0; i < 20; i += 1) write();
-  await settle(300);
+  await outputRead();
   // One redraw is many writes. Reading per write would read twenty times for one change, and
   // most of those captures would land mid-redraw, where the box is not on the screen at all.
   expect(state.screens - before).toBe(1);
@@ -92,6 +120,7 @@ test("reads once for a burst of output, not once per write", async () => {
 });
 
 test("reports only what changed, so a redraw above the box costs nobody anything", async () => {
+  jest.useFakeTimers();
   const { tmux, state, write } = watchable(["hello"]);
   const seen: unknown[] = [];
   const stop = observeTmuxComposer(
@@ -104,21 +133,21 @@ test("reports only what changed, so a redraw above the box costs nobody anything
     },
     tmux,
   );
-  await settle(60);
+  await opened();
   expect(seen).toHaveLength(1);
 
   // The session is working: it writes constantly, and its composer does not move.
   write();
-  await settle(300);
+  await outputRead();
   write();
-  await settle(300);
+  await outputRead();
   expect(state.screens).toBeGreaterThan(1);
   expect(seen).toHaveLength(1);
 
   // Now somebody types into the pane itself.
   state.rows = ["hello there"];
   write();
-  await settle(300);
+  await outputRead();
   expect(seen).toEqual([
     {
       composer: { text: "hello", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] },
@@ -154,7 +183,7 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
     },
     tmux,
   );
-  await settle(60);
+  await opened();
   expect(seen).toEqual([
     {
       composer: { text: null, hint: null, reason: "no-pane", exact: true, commands: [], pastes: [], images: [] },
@@ -168,6 +197,7 @@ test("says a session has no pane, ends, and hangs no pipe on nothing", async () 
 });
 
 test("a watched pane is never ended out from under its reader", async () => {
+  jest.useFakeTimers();
   const { tmux, write } = watchable(["hello"]);
   let ended = 0;
   const stop = observeTmuxComposer(
@@ -180,9 +210,9 @@ test("a watched pane is never ended out from under its reader", async () => {
     },
     tmux,
   );
-  await settle(60);
+  await opened();
   write();
-  await settle(300);
+  await outputRead();
   expect(ended).toBe(0);
   stop();
 });
@@ -193,7 +223,7 @@ test("stopping before the pane answers still leaves nothing watching", async () 
   const { tmux, state } = watchable();
   const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
   stop();
-  await settle(60);
+  await opened();
   expect(state.watching).toBe(false);
 });
 
@@ -201,13 +231,14 @@ test("a push takes the pane the watch is already on, instead of going to find it
   // The point of the whole registry. Resolving reads every session record on disk and asks the
   // kernel about each pid, so a debounced push per keystroke burst was paying about fifty
   // milliseconds to be told what the open watch had known since it opened.
+  jest.useFakeTimers();
   const { tmux, state } = watchable(["hel"]);
   const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
-  await settle(60);
+  await opened();
   expect(state.resolved).toBe(1);
 
-  await syncTmuxComposer("session", "hello", tmux);
-  await submitTmuxComposer("session", tmux);
+  await pushed(syncTmuxComposer("session", "hello", tmux));
+  await pushed(submitTmuxComposer("session", tmux));
   expect(state.resolved).toBe(1);
   expect(state.sent).toEqual([`${END}${OPEN}lo${CLOSE}`, "\r"]);
   stop();
@@ -216,18 +247,20 @@ test("a push takes the pane the watch is already on, instead of going to find it
 test("a push with nobody watching goes and finds the pane for itself", async () => {
   // The gap between a dropped stream and `EventSource` coming back is real, and typing during it
   // has to reach the pane. A miss resolves; it does not refuse.
+  jest.useFakeTimers();
   const tmux = runtime({ screen: async () => screenWith([""]) });
-  await syncTmuxComposer("session", "hello", tmux);
+  await pushed(syncTmuxComposer("session", "hello", tmux));
   expect(tmux.resolved).toBe(1);
   expect(tmux.sent).toEqual([`${END}${OPEN}hello${CLOSE}`]);
 });
 
 test("a watch that let go stops lending its pane", async () => {
+  jest.useFakeTimers();
   const { tmux, state } = watchable([""]);
   const stop = observeTmuxComposer("session", { onState: () => {}, onEnd: () => {} }, tmux);
-  await settle(60);
+  await opened();
   stop();
-  await syncTmuxComposer("session", "hello", tmux);
+  await pushed(syncTmuxComposer("session", "hello", tmux));
   expect(state.resolved).toBe(2);
 });
 
@@ -295,14 +328,16 @@ test("two pushes at one session do not read the same box and both paste their wh
   // 200. Here the pane is slow in the same two places a real one is.
   let held = "";
   const tmux = runtime({
+    // Slow as a yield to the event loop rather than as a length of time: the two pushes interleave
+    // at every one, which is all a real pane's latency does to them.
     screen: async () => {
-      await new Promise((wake) => setTimeout(wake, 5));
+      await drained();
       return screenWith([held]);
     },
     send: async (_pane, bytes) => {
       const keys = new TextDecoder().decode(bytes);
       tmux.sent.push(keys);
-      await new Promise((wake) => setTimeout(wake, 5));
+      await drained();
       held += typed(keys);
     },
   });
@@ -322,19 +357,22 @@ test("a push waits for its send to reach the screen, so the next one reads the b
   // Claude redraws 21-46ms after `send-keys` returns (measured, ten trials). A push that returned
   // inside that window would hand the next one a screen showing the moment before its own send.
   let held = "";
+  let landing = "";
   let reads = 0;
   const tmux = runtime({
     screen: async () => {
       reads += 1;
-      return screenWith([held]);
+      // Late, the way a pane is: the read straight after a send still shows the box before it, and
+      // the send has landed by the read after that.
+      const shown = screenWith([held]);
+      held += landing;
+      landing = "";
+      return shown;
     },
     send: async (_pane, bytes) => {
       const keys = new TextDecoder().decode(bytes);
       tmux.sent.push(keys);
-      // Late, the way a pane is: the send returns before the screen carries it.
-      setTimeout(() => {
-        held += typed(keys);
-      }, 20);
+      landing += typed(keys);
     },
   });
 
@@ -347,9 +385,10 @@ test("a push waits for its send to reach the screen, so the next one reads the b
 test("a send that never shows up on screen gives the push back rather than holding it forever", async () => {
   // The pane belongs to whoever is sitting at it, and they may have typed something that makes the
   // reading never match. Waiting is worth a moment and is not worth a request.
+  jest.useFakeTimers();
   const tmux = runtime({ screen: async () => screenWith(["frozen"]) });
   const started = Date.now();
-  expect(await syncTmuxComposer("session", "something else", tmux)).toEqual({
+  expect(await pushed(syncTmuxComposer("session", "something else", tmux))).toEqual({
     text: "something else",
     hint: null,
     reason: null,
@@ -374,10 +413,10 @@ test("a failed turn does not take the next one down with it", async () => {
       return screenWith([""]);
     },
   });
-  const [broken, fine] = await Promise.all([
-    syncTmuxComposer("shared", "one", tmux),
-    syncTmuxComposer("shared", "two", tmux),
-  ]);
+  jest.useFakeTimers();
+  const [broken, fine] = await pushed(
+    Promise.all([syncTmuxComposer("shared", "one", tmux), syncTmuxComposer("shared", "two", tmux)]),
+  );
   expect(broken.reason).toBe("tmux-unavailable");
   expect(fine).toEqual({ text: "two", hint: null, reason: null, exact: true, commands: [], pastes: [], images: [] });
 });
@@ -420,6 +459,7 @@ test("the turn a session is taking outlives a reload of this module", async () =
   // And a fresh evaluation of this module finds the same one rather than starting its own.
   const reloaded = await import(`./tmuxComposer.ts?reloaded=${Date.now()}`);
   const tmux = runtime({ screen: async () => screenWith([""]) });
-  await reloaded.syncTmuxComposer("reload-probe", "alpha", tmux);
+  jest.useFakeTimers();
+  await pushed(reloaded.syncTmuxComposer("reload-probe", "alpha", tmux));
   expect((globalThis as Record<symbol, unknown>)[store]).toBe(held);
 });

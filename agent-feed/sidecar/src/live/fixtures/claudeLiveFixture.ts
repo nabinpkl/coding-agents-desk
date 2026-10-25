@@ -4,12 +4,34 @@
 // Lifted out of `claudeLiveBackend.test.ts` because that file sat at exactly the 500-line cap, so
 // no test could be added to it. The fixture is the half that is not about any one behaviour.
 
+import { spyOn } from "bun:test";
 import type { ObserverEvent } from "@/live/claudeNetworkSource";
+import * as requestBody from "@/live/claudeRequestBody";
+import { drained } from "@/testing/until";
 
-export const flush = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+// Every body fetch a backend starts, seen through its own import of the module. One spy for the
+// process, installed when this module loads and never taken off: a file can hold two fixtures at
+// once, and a spy per fixture let the first one's stop remove the second's. It only passes each
+// call through and keeps the promise, so code that does not ask for `settled()` sees no change.
+const fetches: Promise<unknown>[] = [];
+const fetchRequestMetadata = requestBody.fetchRequestMetadata;
+spyOn(requestBody, "fetchRequestMetadata").mockImplementation((...args) => {
+  const fetched = fetchRequestMetadata(...args);
+  fetches.push(fetched);
+  return fetched;
+});
 
 export interface FixtureServer {
   url: URL;
+  /**
+   * Resolves once every body fetch any backend has started is handled, and whatever that set off.
+   *
+   * A flow binds to its session only when its request body comes back from this server, which is
+   * a real request. Tests used to sleep 40 to 160ms for it and lost that race on a busy machine
+   * (2026-10-19). This is exact instead, and it is the only way to wait for a fetch that should
+   * change NOTHING -- a subagent's or a summariser's -- since there is nothing to watch for.
+   */
+  settled(): Promise<void>;
   stop(): void;
 }
 
@@ -82,6 +104,15 @@ export function startFixture(): FixtureServer {
   // `server.port` is assigned after `serve` returns.
   return {
     url: new URL(`http://127.0.0.1:${(server as { port: number }).port}`),
+    async settled() {
+      for (let handled = -1; handled !== fetches.length;) {
+        handled = fetches.length;
+        await Promise.allSettled(fetches);
+        // The backend handles a fetch in a `.then` with a `.catch` behind it, attached before this
+        // wait, and `drained` comes after every promise turn they set off.
+        await drained();
+      }
+    },
     stop: () => server.stop(true),
   };
 }

@@ -3,7 +3,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
-import { delta, ended, flowEvent, flush, startFixture, type FixtureServer } from "@/live/fixtures/claudeLiveFixture";
+import { delta, ended, flowEvent, startFixture, type FixtureServer } from "@/live/fixtures/claudeLiveFixture";
 
 const message = (id: string, text: string) => [
   { type: "message_start", message: { id, model: "claude-haiku-4-5", usage: { input_tokens: 5, output_tokens: 0 } } },
@@ -31,7 +31,7 @@ describe("a runner-fed session", () => {
     backend.acceptObserverEvent(flowEvent(flowId, "/v1/messages", "api.anthropic.com", "rf1"));
     for (const event of message(id, text)) backend.acceptObserverEvent(delta(flowId, event));
     backend.acceptObserverEvent(ended(flowId));
-    await flush(160);
+    await fixture.settled();
   };
 
   test("draws the runner's message, finished at its stop, under the API's message id", async () => {

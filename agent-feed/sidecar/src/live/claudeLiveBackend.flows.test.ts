@@ -4,8 +4,9 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { ClaudeLiveBackend } from "@/live/claudeLiveBackend";
+import { until } from "@/testing/until";
 import type { ObserverEvent } from "@/live/claudeNetworkSource";
-import { delta, ended, flowEvent, flush, startFixture, type FixtureServer } from "@/live/fixtures/claudeLiveFixture";
+import { delta, ended, flowEvent, startFixture, type FixtureServer } from "@/live/fixtures/claudeLiveFixture";
 
 describe("ClaudeLiveBackend flows around the bind", () => {
   // Each test builds its own backend over this one capture server.
@@ -29,7 +30,7 @@ describe("ClaudeLiveBackend flows around the bind", () => {
       delta("f2", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }),
     );
     local.acceptObserverEvent(delta("f2", { type: "message_stop" }));
-    await flush(80);
+    await fixture.settled();
     const page = await local.page("sess-b2", 0, 10, "nice");
     expect(page.events[0]!.blocks[0]!.text).toBe("ok");
     await local.dispose();
@@ -52,7 +53,7 @@ describe("ClaudeLiveBackend flows around the bind", () => {
       );
     }
     local.acceptObserverEvent(delta("fast", { type: "message_stop" }));
-    await flush(160);
+    await fixture.settled();
     const page = await local.page("sess-fast1", 0, 10, "nice");
     expect(page.total).toBe(1);
     expect(page.events[0]!.blocks[0]!.text).toBe("x".repeat(400));
@@ -73,10 +74,10 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     local.acceptObserverEvent(
       delta("late", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "late" } }),
     );
-    await flush(40);
+    await fixture.settled();
     local.acceptObserverEvent(flowEvent("late", "/v1/messages", "api.anthropic.com", "late1"));
     local.acceptObserverEvent(delta("late", { type: "message_stop" }));
-    await flush(160);
+    await fixture.settled();
     const page = await local.page("sess-late1", 0, 10, "nice");
     expect(page.total).toBe(1);
     expect(page.events[0]!.blocks[0]!.text).toBe("late");
@@ -92,11 +93,14 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     local.acceptObserverEvent(
       delta("cut", { type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
     );
-    await flush(160);
+    await fixture.settled();
     expect((await local.page("sess-cut1", 0, 10, "nice")).events[0]!.phase).toBe("streaming");
     await local.start();
-    await flush(160);
-    expect((await local.page("sess-cut1", 0, 10, "nice")).events[0]!.phase).toBe("complete");
+    // The connection fails on its own schedule, not through a body fetch, so wait for its effect.
+    await until(
+      async () => (await local.page("sess-cut1", 0, 10, "nice")).events[0]!.phase === "complete",
+      "the dropped connection to finish the message",
+    );
     await local.dispose();
   });
 
@@ -121,7 +125,7 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     };
     const phase = async (session: string) => (await local.page(`sess-${session}`, 0, 10, "nice")).events[0]!.phase;
     open("dying", "dying1", "cap-a");
-    await flush(160);
+    await fixture.settled();
     // The capture saying it is still running ends nothing of its own.
     local.acceptObserverEvent(health("cap-a", "CAPTURE_LIFECYCLE_RUNNING"));
     expect(await phase("dying1")).toBe("streaming");
@@ -130,7 +134,7 @@ describe("ClaudeLiveBackend flows around the bind", () => {
     // One capture runs at a time, so a different one taking over means the last is gone, whether
     // or not it said so first.
     open("next", "next1", "cap-b");
-    await flush(160);
+    await fixture.settled();
     expect(await phase("next1")).toBe("streaming");
     local.acceptObserverEvent(health("cap-c", "CAPTURE_LIFECYCLE_STARTING"));
     expect(await phase("next1")).toBe("complete");
@@ -145,7 +149,7 @@ describe("ClaudeLiveBackend flows around the bind", () => {
       delta("early", { type: "content_block_start", index: 0, content_block: { type: "text" } }),
     );
     local.acceptObserverEvent(ended("early"));
-    await flush(160);
+    await fixture.settled();
     expect((await local.page("sess-early1", 0, 10, "nice")).events[0]!.phase).toBe("complete");
     await local.dispose();
   });

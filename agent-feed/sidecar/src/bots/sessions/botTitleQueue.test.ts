@@ -4,6 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { BotSessionRef } from "@agentdesk/agent-feed-wire";
 import { botRegistryHarness } from "@/bots/botRegistryHarness";
 import { anchoredTitle, BotTitleQueue } from "@/bots/sessions/botTitleQueue";
+import { drained } from "@/testing/until";
 
 const { addBot, addSessions, catalog, fixture, notifyCatalog, sessions, summary } = botRegistryHarness();
 
@@ -231,7 +232,8 @@ test("a session reopened in a pane is renamed once it is ready, without waiting 
   // Its composer is drawn: the rename goes in although the transcript has not moved.
   running = true;
   ready(true);
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The wait for the composer resolves in memory; `drained` lets what it queues reach the queue.
+  await drained();
   await queue.settled();
   expect(asked).toEqual(["Aaron (pi session)", "Aaron (pi session)"]);
 });
@@ -258,7 +260,8 @@ test("a pane that never came up, or one no Bot holds, asks nothing", async () =>
   await queue.settled();
   paneStarted("session-1");
   paneStarted("not-on-any-bot");
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The wait for the composer resolves in memory; `drained` lets what it queues reach the queue.
+  await drained();
   await queue.settled();
   expect(waited).toEqual(["session-1"]);
   expect(asked).toHaveLength(1);

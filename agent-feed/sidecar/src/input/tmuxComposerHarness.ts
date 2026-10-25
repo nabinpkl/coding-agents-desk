@@ -176,5 +176,3 @@ export function watchable(initial: string[] = ["hello"]) {
   };
   return { state, tmux, write: () => notify?.() };
 }
-
-export const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

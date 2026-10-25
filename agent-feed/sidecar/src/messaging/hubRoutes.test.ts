@@ -3,6 +3,7 @@ import type { BotSnapshot } from "@agentdesk/agent-feed-wire";
 import { publishedBots, startHubBotPublisher } from "@/messaging/hubBotPublisher";
 import { HubClient } from "@/messaging/hubClient";
 import { createHubRoutes } from "@/messaging/hubRoutes";
+import { until } from "@/testing/until";
 
 let fake: ReturnType<typeof Bun.serve> | undefined;
 afterEach(() => fake?.stop(true));
@@ -103,7 +104,7 @@ describe("hub bot publisher", () => {
       hub,
       () => {},
     );
-    for (let i = 0; i < 50 && puts.length === 0; i++) await Bun.sleep(10);
+    await until(() => puts.length > 0, "the directory publish");
     stop();
     expect(puts[0]).toEqual({ path: "/v1/directory/bots/mac", body: { bots: publishedBots(snapshot) } });
   });

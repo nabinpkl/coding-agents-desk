@@ -12,7 +12,7 @@ const SSE_HEADERS: ResponseInit["headers"] = {
   "x-accel-buffering": "no",
 };
 
-const SSE_HEARTBEAT_MS = 20_000;
+export const SSE_HEARTBEAT_MS = 20_000;
 const encoder = new TextEncoder();
 const PING_BYTES = encoder.encode(": ping\n\n");
 

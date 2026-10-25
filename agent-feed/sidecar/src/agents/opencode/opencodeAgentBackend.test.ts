@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import type { OpencodeClient } from "@/agents/opencode/serve/opencodeClient";
 import { OpencodeAgentBackend } from "@/agents/opencode/opencodeAgentBackend";
 import { AgentModeUnsupportedError, AgentSessionNotFoundError } from "@/agents/agentBackend";
+import { until } from "@/testing/until";
 
 interface Recorded {
   prompts: Array<{
@@ -307,23 +308,17 @@ test("a serve permission becomes a broker select and the answer becomes its repl
   });
   const offTimeline = await backend.subscribe("s1", 0, () => {});
   // Let the stream loop reach the fake subscribe before pushing through it.
-  for (let i = 0; i < 100 && pushToStream === null; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  await until(() => pushToStream !== null, "the stream loop to subscribe");
   pushToStream?.({
     id: "ev-1",
     type: "permission.asked",
     data: { id: "perm-1", sessionID: "s1", action: "shell", resources: ["rm *"] },
   });
-  for (let i = 0; i < 100 && seen.length === 0; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  await until(() => seen.length > 0, "the permission to reach the broker");
   expect(seen).toHaveLength(1);
   expect(seen[0]?.request?.options).toEqual(["once", "always", "reject"]);
   expect(await backend.respondToUi("s1", seen[0]!.request!.requestId, "once")).toBe("accepted");
-  for (let i = 0; i < 100 && recorded.permissionReplies.length === 0; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+  await until(() => recorded.permissionReplies.length > 0, "the answer to reach the serve");
   expect(recorded.permissionReplies).toEqual([{ requestID: "perm-1", reply: "once" }]);
   offUi();
   offTimeline();

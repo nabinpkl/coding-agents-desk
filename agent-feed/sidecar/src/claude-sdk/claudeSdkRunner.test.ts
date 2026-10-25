@@ -7,6 +7,7 @@ import { FakeQuery } from "@/claude-sdk/claudeSdkHarness";
 import { ClaudeSdkRunner, type RunnerEvent, type RunnerPlan } from "@/claude-sdk/claudeSdkRunner";
 import { planFromArguments } from "@/claude-sdk/claudeSdkRunnerMain";
 import { RUNNER_SOURCE_FILES, runnerBuild } from "@/claude-sdk/claudeSdkProtocol";
+import { drained } from "@/testing/until";
 
 const PLAN: RunnerPlan = {
   sessionId: "11111111-2222-4333-8444-555555555555",
@@ -141,7 +142,7 @@ describe("what the runner keeps", () => {
     fake().send({ type: "stream_event", event: { type: "message_start" } });
     fake().send({ type: "system", subtype: "status", permissionMode: "plan" });
     fake().send({ type: "system", subtype: "init", model: "b" });
-    await Bun.sleep(5);
+    await drained();
     expect(runner.snapshot().records).toEqual([
       { kind: "message", message: { type: "stream_event", event: { type: "message_start" } } },
       { kind: "message", message: { type: "system", subtype: "status", permissionMode: "plan" } },
@@ -157,7 +158,7 @@ describe("what the runner keeps", () => {
     const events: RunnerEvent["type"][] = [];
     runner.subscribe((event) => events.push(event.type));
     fake().send({ type: "result", subtype: "success" });
-    await Bun.sleep(2);
+    await drained();
     void call(fake(), "Bash", {}, "toolu_1");
     runner.resolve(runner.snapshot().callbacks[0]!.id, { behavior: "allow", updatedInput: {} });
     expect(events).toEqual(["record", "callback", "settled"]);
@@ -169,7 +170,7 @@ describe("what the runner keeps", () => {
 describe("a call", () => {
   test("runs the named method on the query with the arguments sent, and keeps it", async () => {
     const { runner, fake, done } = started();
-    await Bun.sleep(1);
+    await drained();
     expect(await runner.call("setModel", ["haiku"])).toEqual({ ok: true, value: null });
     expect(fake().models).toEqual(["haiku"]);
     const listed = await runner.call("supportedModels", []);
@@ -181,7 +182,7 @@ describe("a call", () => {
 
   test("layers the calls of a method that takes one settings object, as the flag layer does", async () => {
     const { runner, fake, done } = started();
-    await Bun.sleep(1);
+    await drained();
     await runner.call("applyFlagSettings", [{ effortLevel: "high" }]);
     await runner.call("applyFlagSettings", [{ fastMode: true }]);
     expect(fake().flagSettings).toEqual([{ effortLevel: "high" }, { fastMode: true }]);
@@ -194,7 +195,7 @@ describe("a call", () => {
 
   test("says so for a method the SDK has not, or one that throws, and keeps neither", async () => {
     const { runner, fake, done } = started();
-    await Bun.sleep(1);
+    await drained();
     expect(await runner.call("renameSessionLater", [])).toEqual({
       ok: false,
       message: "this SDK has no renameSessionLater",
@@ -219,7 +220,7 @@ describe("the session's input", () => {
       parent_tool_use_id: null,
     };
     expect(runner.input(later)).toEqual({ ok: true, value: null });
-    await Bun.sleep(5);
+    await drained();
     expect(fake().received.map((message) => message.message.content)).toEqual(["begin", "and then this"]);
     expect(fake().received[0]!.origin?.kind).toBe("human");
     expect(runner.snapshot().records).toEqual([{ kind: "input" }]);

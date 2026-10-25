@@ -130,6 +130,32 @@ ADR-0125), so a row that was 90 seconds late usually arrived alongside the reply
 normal. And a sidecar that has just reloaded is prompt, so it worked right after every edit
 and rotted from there.
 
+## A test waits for what it expects, never for a length of time
+
+Settled 2026-10-19. Check 10 of `tools/agent-feed-fitness.sh` refuses `setTimeout`, `setInterval`
+and `Bun.sleep` in any sidecar test, test harness or fixture; `src/testing/until.ts` is the one
+place allowed a timer.
+
+A fixed wait is a guess about how fast the machine is, and it loses on a busy one. Measured that
+day: run beside the panel's suite, two tests that waited 10ms for the Bot registry failed; under
+`bun test --parallel` a different test failed on each run; and 107 of the suite's 2,284 tests took
+37 of its 45 seconds, most of them sitting out timers. With the waits gone the suite ran in 23s.
+
+- **Something will happen**: `await until(() => condition, "what you are waiting for")`. It polls,
+  returns as soon as the condition holds, and fails naming what never came.
+- **In-memory work is over**: `await drained()`, the next pass of the event loop. An order, not a
+  length of time, and it works on fake time too.
+- **Nothing will happen**: wait for something that comes after it instead. A marker change on the
+  same ordered channel (a second emission, a later message on the stream, a file beside the
+  watched one), or the code's own handling of the input finishing. Waiting a while and finding
+  nothing is a statement about the wait.
+- **The code under test owns the timer** (a debounce, a poll, a timeout): `jest.useFakeTimers()`,
+  then `jest.advanceTimersByTime(...)` or `settleOnFakeTime(work, step)`. Reset with
+  `jest.useRealTimers()` in an `afterEach`. Two traps on fake time: Bun's own limit for a test is a
+  timer and stops too, so switch back to real time before awaiting anything that might never come;
+  and `expect(promise).rejects` waits for the promise on the spot, so catch it with `.then` instead
+  when the clock has to move first.
+
 ## Reach for an event first, and a poll last
 
 Recorded 2026-09-25, on the owner's word, after a Bot's git count shipped as a ten-second poll.
