@@ -1,7 +1,7 @@
 // A Bot session's agent log (ADR-0147), opened in the session's code viewer. Shown only on a session
 // that has said it keeps one, through `tools/agent-log-register.sh`; every other session has none.
 
-import { ScrollText } from "lucide-react";
+import { NotebookText } from "lucide-react";
 import type { BotView, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { FilePathTarget } from "@/features/activity-feed/markdown/filePathLinks";
 
@@ -33,7 +33,7 @@ export function SessionLogButton({
       title={missing ? "Bot directory is unavailable" : label}
       className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg session-muted-ink outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <ScrollText className="size-4" aria-hidden />
+      <NotebookText className="size-4" aria-hidden />
     </button>
   );
 }
