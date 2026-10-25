@@ -1,4 +1,4 @@
-/* Talking to the agent hub at relay.example.com.
+/* Talking to the agent hub (HUB_URL in deploy/.env).
  *
  * The hub sits behind Cloudflare Access, and Access takes a service token's client id and secret
  * as headers on the request itself: the edge does the token exchange, and the origin sees only

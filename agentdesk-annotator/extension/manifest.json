@@ -3,7 +3,6 @@
   "name": "AgentDesk Annotator",
   "version": "1.0.0",
   "description": "Click a container or drag a region, comment, and hand agents a structured brief over MCP.",
-  "key": "MANIFEST-KEY-REMOVED",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",
@@ -11,10 +10,6 @@
     "identity",
     "scripting",
     "declarativeNetRequestWithHostAccess"
-  ],
-  "host_permissions": [
-    "https://annotator.example.com/*",
-    "https://team.cloudflareaccess.com/*"
   ],
   "action": {
     "default_title": "Annotate this page"

@@ -101,7 +101,7 @@ let metadata: AsMetadata | null = null;
 function onAuthOrigin(url: string | undefined, name: string): string {
   if (!url) throw new Error(`authorization server metadata has no ${name}`);
   if (new URL(url).origin !== AUTH_ORIGIN) {
-    throw new Error(`${name} moved to ${new URL(url).origin}; update AUTH_ORIGIN and manifest host_permissions`);
+    throw new Error(`${name} moved to ${new URL(url).origin}; set CF_ACCESS_TEAM_DOMAIN to match and rebuild the extension`);
   }
   return url;
 }

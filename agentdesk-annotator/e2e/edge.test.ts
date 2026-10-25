@@ -2,16 +2,16 @@
  * Authenticates with the annotator-e2e service token. Everything it creates
  * lives under a unique https://e2e.invalid/<run> URL and is cleared at the end.
  *
- * Env: ANNOTATOR_URL (default https://annotator.example.com),
+ * Env: ANNOTATOR_URL (the deployed server, e.g. https://annotator.example.com),
  *      E2E_CF_ACCESS_CLIENT_ID, E2E_CF_ACCESS_CLIENT_SECRET. */
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
-const BASE = process.env.ANNOTATOR_URL ?? "https://annotator.example.com";
+const BASE = process.env.ANNOTATOR_URL?.replace(/\/+$/, "");
 const id = process.env.E2E_CF_ACCESS_CLIENT_ID;
 const secret = process.env.E2E_CF_ACCESS_CLIENT_SECRET;
-if (!id || !secret) throw new Error("E2E_CF_ACCESS_CLIENT_ID and E2E_CF_ACCESS_CLIENT_SECRET are required");
+if (!BASE || !id || !secret) throw new Error("ANNOTATOR_URL, E2E_CF_ACCESS_CLIENT_ID and E2E_CF_ACCESS_CLIENT_SECRET are required");
 const auth = { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": secret };
 const PAGE = `https://e2e.invalid/${Date.now()}`;
 const P = "agentdesk-annotator";

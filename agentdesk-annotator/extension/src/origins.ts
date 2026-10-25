@@ -1,26 +1,19 @@
-/* The two origins the extension talks to. manifest.json host_permissions must
- * list both (extension/build.ts checks); DNR header rules also need host
- * access to act on AUTH_ORIGIN. */
+/* The two origins the extension talks to, fixed when it is built: extension/build.ts reads them
+ * from ANNOTATOR_URL and CF_ACCESS_TEAM_DOMAIN (agentdesk-annotator/.env, see .env.example),
+ * defines them here, and lists both in the built manifest's host_permissions. DNR header rules
+ * also need host access to act on AUTH_ORIGIN. */
+import { apiUrlOn } from "./apiUrl.ts";
+
+declare const __SERVER_ORIGIN__: string;
+declare const __AUTH_ORIGIN__: string;
 
 /** The annotator server (behind Cloudflare Access). */
-export const SERVER_ORIGIN = "https://annotator.example.com";
+export const SERVER_ORIGIN: string = __SERVER_ORIGIN__;
 
 /** The Access team domain serving the OAuth authorize, token and registration endpoints. */
-export const AUTH_ORIGIN = "https://team.cloudflareaccess.com";
+export const AUTH_ORIGIN: string = __AUTH_ORIGIN__;
 
-/**
- * The URL a path names, refused unless it is this server's API.
- *
- * The path arrives from a content script, which runs inside every page and is the part of this
- * extension a hostile page is closest to. Concatenating it onto the origin trusted it: a path like
- * `@evil.test/x` turns `https://annotator.example.com@evil.test/x` into a request to another host,
- * carrying the bearer token. Parsing and comparing the origin is what actually pins it.
- */
+/** The URL a path names on the annotator server, refused unless it is the server's API. */
 export function apiUrl(path: string): URL {
-  if (!path.startsWith("/api/v1/")) throw new Error(`refusing a request outside /api/v1/: ${path}`);
-  const url = new URL(path, SERVER_ORIGIN);
-  if (url.origin !== SERVER_ORIGIN || !url.pathname.startsWith("/api/v1/")) {
-    throw new Error(`refusing a request that leaves ${SERVER_ORIGIN}/api/v1/: ${path}`);
-  }
-  return url;
+  return apiUrlOn(SERVER_ORIGIN, path);
 }

@@ -1,5 +1,8 @@
 # agentdesk-annotator tasks. Server runs TypeScript directly on Node 24.
 
+# The extension build and the e2e suite read their settings from .env beside this file (see .env.example).
+set dotenv-load
+
 default:
   @just --list
 
@@ -13,7 +16,7 @@ typecheck:
 test:
   node --test "server/test/**/*.test.ts"
 
-# Bundle the extension into extension/dist (load unpacked from there).
+# Bundle the extension into extension/dist (load unpacked from there), for the server and sign-in in .env.
 build-extension:
   node extension/build.ts
 

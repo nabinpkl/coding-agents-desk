@@ -15,7 +15,7 @@ export class Unauthorized extends Error {
 }
 
 export interface AccessVerifierOptions {
-  /** e.g. team.cloudflareaccess.com */
+  /** e.g. <team>.cloudflareaccess.com */
   teamDomain: string;
   /** The Access application's AUD tag. */
   audience: string;

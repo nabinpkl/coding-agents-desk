@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { apiUrl, SERVER_ORIGIN } from "../../extension/src/origins.ts";
+import { apiUrlOn } from "../../extension/src/apiUrl.ts";
+
+const SERVER = "https://annotator.example.com";
+const apiUrl = (path: string) => apiUrlOn(SERVER, path);
 
 test("an API path resolves on the annotator server", () => {
-  assert.equal(apiUrl("/api/v1/annotations?url=https%3A%2F%2Fa.test").href, `${SERVER_ORIGIN}/api/v1/annotations?url=https%3A%2F%2Fa.test`);
+  assert.equal(apiUrl("/api/v1/annotations?url=https%3A%2F%2Fa.test").href, `${SERVER}/api/v1/annotations?url=https%3A%2F%2Fa.test`);
   assert.equal(apiUrl("/api/v1/annotations/7/screenshot").pathname, "/api/v1/annotations/7/screenshot");
 });
 
