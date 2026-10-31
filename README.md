@@ -16,12 +16,14 @@ tabs for the Mac's terminals, a file editor and a live view of the Mac's screen.
 
 ## The panel's tabs
 
-The panel has seven tabs along its top bar:
+The panel has nine tabs along its top bar:
 
 - **Feed**, in its **Canvas** view, is where you read sessions and type into them. Each Bot (a
   name, a project folder, and the sessions working in that folder) shows its sessions as cards on
   the Canvas. A card shows its session's transcript and the questions the agent asks, which can be
   answered on the card, and has a box that types into the session.
+- **Group** is a group chat: a room of sessions you already have, or of headless Claude lanes,
+  shows where each message stands with each member. A room is off until you switch it on.
 - **Terminals** lists the Mac's tmux windows and panes and opens any of them.
 - **IDE** browses a project folder's files, edits them, and searches them with ripgrep.
 - **Desktop** streams one of the Mac's displays as video and sends it pointer and keyboard input.
@@ -30,6 +32,8 @@ The panel has seven tabs along its top bar:
   window.
 - **Arena** sends one prompt to several sessions, each in a git worktree of its own, and shows
   their answers side by side.
+- **Camera** counts hand swipes from the Mac's camera, and has an interview-practice mode that asks
+  questions and measures the answers.
 - **Branches** is the start of a view of one chat and the chats forked from it. For now it shows
   the same cards as Canvas.
 
@@ -41,22 +45,10 @@ panel's backend: it starts sessions in tmux, reads their transcripts, and answer
 `/api` requests. The dev server and the sidecar both run from source, so an edit to either one
 reaches an open panel without a rebuild.
 
-```
- browser on the Mac or a phone
-        |
-        |  http://127.0.0.1:5173                (loopback, the default)
-        |  https://<mac>.<tailnet>.ts.net:5173   (tailnet mode)
-        v
- panel dev server     packages/AgentPanel/Web     React, served by Vite
-        |
-        |  /api, forwarded to http://127.0.0.1:7682
-        v
- sidecar              agent-feed/sidecar          TypeScript on Bun, under a supervisor
-        |
-        +-- tmux panes running claude and opencode
-        +-- Claude Code transcripts in ~/.claude/projects (read only)
-        +-- opencode serve, through its own HTTP API
-```
+![AgentDesk's current architecture](docs/architecture.svg)
+
+_The current path: the panel and the sidecar on one Mac, Group beside them, and the hub and other
+machines beyond._
 
 The sidecar's supervisor restarts the sidecar when its source changes, and only once the changed
 files parse and typecheck. The native pieces beside these two, the Mac app and a screen-capture
@@ -68,18 +60,18 @@ helper, are described under [Optional parts](#optional-parts), and the dormant i
 The versions are the ones on the author's Mac on 2026-10-24. Older versions may work and have not
 been tried.
 
-| Tool | Version | Needed for |
-| --- | --- | --- |
-| macOS | 26.4, Apple silicon | everything |
-| Xcode Command Line Tools | | `git`, `python3` and `swiftc` |
-| [Bun](https://bun.sh) | 1.3.13 | the sidecar and the panel |
-| [Node.js](https://nodejs.org) | 24.14 | the build scripts the recipes in `Justfile` run |
-| [just](https://github.com/casey/just) | 1.50 | running the recipes in `Justfile` |
-| [tmux](https://github.com/tmux/tmux) | 3.6b | every session runs in a tmux pane |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code), signed in | 2.1.310 | Claude sessions |
-| [opencode](https://opencode.ai) | 2.0.30 | opencode sessions (optional) |
-| [ripgrep](https://github.com/BurntSushi/ripgrep) | 15.2 | search in the IDE tab (optional) |
-| [Tailscale](https://tailscale.com) | 1.102 | the panel on a phone (optional) |
+| Tool                                                                     | Version             | Needed for                                      |
+| ------------------------------------------------------------------------ | ------------------- | ----------------------------------------------- |
+| macOS                                                                    | 26.4, Apple silicon | everything                                      |
+| Xcode Command Line Tools                                                 |                     | `git`, `python3` and `swiftc`                   |
+| [Bun](https://bun.sh)                                                    | 1.3.13              | the sidecar and the panel                       |
+| [Node.js](https://nodejs.org)                                            | 24.14               | the build scripts the recipes in `Justfile` run |
+| [just](https://github.com/casey/just)                                    | 1.50                | running the recipes in `Justfile`               |
+| [tmux](https://github.com/tmux/tmux)                                     | 3.6b                | every session runs in a tmux pane               |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code), signed in | 2.1.310             | Claude sessions                                 |
+| [opencode](https://opencode.ai)                                          | 2.0.30              | opencode sessions (optional)                    |
+| [ripgrep](https://github.com/BurntSushi/ripgrep)                         | 15.2                | search in the IDE tab (optional)                |
+| [Tailscale](https://tailscale.com)                                       | 1.102               | the panel on a phone (optional)                 |
 
 The sidecar looks for `tmux`, `claude` and `opencode` in `~/.local/bin`, `/opt/homebrew/bin` and
 `/usr/local/bin`, and for opencode in `~/.opencode/bin` too. For a binary installed anywhere else,
@@ -93,8 +85,8 @@ the Mac app, Xcode or an Apple developer account.
 1. Clone the repository and install the sidecar's packages:
 
    ```sh
-   git clone https://github.com/nabinpkl/agent-desk.git
-   cd agent-desk
+   git clone https://github.com/nabinpkl/coding-agents-desk.git
+   cd coding-agents-desk
    (cd agent-feed/sidecar && bun install --frozen-lockfile)
    ```
 
@@ -151,11 +143,11 @@ serve fails with `database is locked`.
 the repository root, for example `AGENTDESK_PANEL_LISTEN=tailnet`, and create the file if it is not
 there.
 
-| Value | Reachable from | URL |
-| --- | --- | --- |
-| `loopback` (the default) | the Mac only | `http://127.0.0.1:5173` |
-| `tailnet` | the Mac and the devices on your tailnet | `https://<mac>.<tailnet>.ts.net:5173`, over HTTP/2 |
-| `network` | every network the Mac is on | `http://<mac>.local:5173`, plain HTTP |
+| Value                    | Reachable from                          | URL                                                |
+| ------------------------ | --------------------------------------- | -------------------------------------------------- |
+| `loopback` (the default) | the Mac only                            | `http://127.0.0.1:5173`                            |
+| `tailnet`                | the Mac and the devices on your tailnet | `https://<mac>.<tailnet>.ts.net:5173`, over HTTP/2 |
+| `network`                | every network the Mac is on             | `http://<mac>.local:5173`, plain HTTP              |
 
 For a phone, use `tailnet`. It needs Tailscale running on the Mac and on the phone, with MagicDNS
 and HTTPS certificates turned on for the tailnet. `just agent-webview-dev` then gets a certificate
@@ -177,14 +169,14 @@ environment, so its settings go on its command line, for example
 
 These are the settings a first run is most likely to change:
 
-| Variable | Read by | Default | What it sets |
-| --- | --- | --- | --- |
-| `AGENTDESK_PANEL_LISTEN` | panel | `loopback` | where the panel can be reached from (see above) |
-| `AGENTDESK_AGENT_PANEL_DEV_PORT` | panel | `5173` | the panel's port |
-| `AGENT_FEED_PORT` | sidecar | `7682` | the sidecar's port. A sidecar on another port needs the panel told: `just agent-webview-dev 5173 http://127.0.0.1:7700` |
-| `AGENT_FEED_CLAUDE_PERMISSION_MODE` | sidecar | `auto` | the permission mode a Claude session starts in: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan` |
-| `AGENT_FEED_CLAUDE_ALLOW_BYPASS` | sidecar | `true` | whether "bypass permissions" is one of the modes Shift+Tab cycles through in a session |
-| `AGENT_FEED_IDLE_CLOSE_AFTER_MS` | sidecar | two hours | how long a Claude or opencode session that is not on any Bot can sit idle before the sidecar closes its tmux pane; `0` turns this off |
+| Variable                            | Read by | Default    | What it sets                                                                                                                          |
+| ----------------------------------- | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENTDESK_PANEL_LISTEN`            | panel   | `loopback` | where the panel can be reached from (see above)                                                                                       |
+| `AGENTDESK_AGENT_PANEL_DEV_PORT`    | panel   | `5173`     | the panel's port                                                                                                                      |
+| `AGENT_FEED_PORT`                   | sidecar | `7682`     | the sidecar's port. A sidecar on another port needs the panel told: `just agent-webview-dev 5173 http://127.0.0.1:7700`               |
+| `AGENT_FEED_CLAUDE_PERMISSION_MODE` | sidecar | `auto`     | the permission mode a Claude session starts in: `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` or `plan`             |
+| `AGENT_FEED_CLAUDE_ALLOW_BYPASS`    | sidecar | `true`     | whether "bypass permissions" is one of the modes Shift+Tab cycles through in a session                                                |
+| `AGENT_FEED_IDLE_CLOSE_AFTER_MS`    | sidecar | two hours  | how long a Claude or opencode session that is not on any Bot can sit idle before the sidecar closes its tmux pane; `0` turns this off |
 
 The sidecar keeps its state in `~/Library/Application Support/agentdesk-agent-feed/` and in the
 runtime folder `~/Library/Application Support/AgentDeskRuntime/` (`AGENTDESK_RUNTIME_ROOT`). Each
@@ -213,6 +205,8 @@ one Mac, and their setup has not yet been tried on a second one.
 - **Voice.** `just speech-voice` installs the speech process's Python environment and voice model.
   The speech process reads events aloud, such as a session finishing a turn, to a listening page
   that is still an experiment.
+- **Camera tab.** `just camera-models` puts its hand and face tracking models, about 11MB, on the
+  Mac, and the panel's dev server serves them to the tab, which reaches no other site.
 - **A second machine.** Run `just remote-sidecar-setup <ssh host>` once, then
   `just remote-sidecar-run <ssh host>`, to run a sidecar on another macOS or Linux machine over
   ssh, bound to that machine's tailnet address. `AGENTDESK_PANEL_REMOTE_SIDECARS` in `.env` adds its
@@ -243,16 +237,16 @@ these:
 
 ## Repository layout
 
-| Path | Contents |
-| --- | --- |
-| `packages/AgentPanel/Web/` | the panel: React, Vite, Tailwind |
-| `agent-feed/sidecar/` | the sidecar, its supervisor, and the Claude Code plugins it loads into sessions (`mods/`) |
-| `agent-feed/wire/` | the request and response shapes the panel and the sidecar share |
-| `agent-feed/hub/`, `agent-feed/speech/` | the messaging hub and the speech process |
-| `tools/` | build and launch scripts, the capture helper, and the repository's checks |
-| `host/`, `client/`, `packages/`, `terminal/`, `deskzoom/` | the native Mac and iPhone apps, their Swift packages, the Rust terminal runtime, and a virtual display |
-| `architecture-decisions/` | one numbered record per decision |
-| `docs/` | [PRD.md](docs/PRD.md) (what AgentDesk is for), [SPEC.md](docs/SPEC.md) (how it is built), the iteration ledger `TASKS.md`, and how-to notes, most of them under `docs/agents/` |
+| Path                                                      | Contents                                                                                                                                                                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/AgentPanel/Web/`                                | the panel: React, Vite, Tailwind                                                                                                                                               |
+| `agent-feed/sidecar/`                                     | the sidecar, its supervisor, and the Claude Code plugins it loads into sessions (`mods/`)                                                                                      |
+| `agent-feed/wire/`                                        | the request and response shapes the panel and the sidecar share                                                                                                                |
+| `agent-feed/hub/`, `agent-feed/speech/`                   | the messaging hub and the speech process                                                                                                                                       |
+| `tools/`                                                  | build and launch scripts, the capture helper, and the repository's checks                                                                                                      |
+| `host/`, `client/`, `packages/`, `terminal/`, `deskzoom/` | the native Mac and iPhone apps, their Swift packages, the Rust terminal runtime, and a virtual display                                                                         |
+| `architecture-decisions/`                                 | one numbered record per decision                                                                                                                                               |
+| `docs/`                                                   | [PRD.md](docs/PRD.md) (what AgentDesk is for), [SPEC.md](docs/SPEC.md) (how it is built), the iteration ledger `TASKS.md`, and how-to notes, most of them under `docs/agents/` |
 
 ## Development
 

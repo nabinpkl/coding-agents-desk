@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1000" width="1200" height="1000" role="img" aria-labelledby="architecture-title architecture-desc">
+  <title id="architecture-title">AgentDesk's current architecture</title>
+  <desc id="architecture-desc">A browser on the Mac or a phone loads the React panel, which talks to a Vite dev server on one origin. The dev server forwards HTTP and Server-Sent Events to the sidecar, Group, other machines' sidecars, and the VNC relay. The sidecar runs under a supervisor, starts and drives Claude sessions in tmux (terminal or Agent SDK runner) and opencode through its serve, reads Claude transcripts, and spawns the Swift capture helper. Group is a separate Effect process with rooms, a SQLite store and an OTLP receiver. Desktop video and control travel over WebRTC between the panel and the capture helper. The sidecar reaches a messaging hub outside the Mac, and the hub connects the sessions on other machines.</desc>
+  <style>
+    text {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+      fill: #1c1917;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .title { font-size: 26px; font-weight: 650; letter-spacing: -0.3px; }
+    .subtitle { font-size: 14px; fill: #57534e; }
+    .kicker { font-size: 11px; letter-spacing: 0.09em; fill: #78716c; }
+    .box-title { font-size: 16px; font-weight: 600; }
+    .box-title-sm { font-size: 15px; font-weight: 600; }
+    .body { font-size: 13px; fill: #44403c; }
+    .small { font-size: 12px; fill: #57534e; }
+    .tiny { font-size: 11px; fill: #78716c; }
+    .label { font-size: 12px; fill: #57534e; }
+    .t-blue { fill: #1d4ed8; }
+    .t-slate { fill: #334155; }
+    .t-green { fill: #15803d; }
+    .t-purple { fill: #6d28d9; }
+    .t-amber { fill: #b45309; }
+    .t-gray { fill: #57534e; }
+    .s-title { fill: #f8fafc; }
+    .s-body { fill: #e2e8f0; }
+    .s-small { fill: #94a3b8; }
+    .bg { fill: #fffdf8; stroke: #e9e3d7; }
+    .container { fill: #f8f5ed; stroke: #e5dfd1; }
+    .surface { fill: #f8fafc; stroke: #cbd5e1; }
+    .panel { fill: #eff6ff; stroke: #93c5fd; }
+    .dev { fill: #f8fafc; stroke: #cbd5e1; }
+    .sidecar { fill: #0f172a; stroke: #0f172a; }
+    .group { fill: #f5f3ff; stroke: #ddd6fe; }
+    .desktop { fill: #fffbeb; stroke: #fde68a; }
+    .session { fill: #f0fdf4; stroke: #bbf7d0; }
+    .external { fill: #fafaf9; stroke: #d6d3d1; stroke-dasharray: 5 4; }
+    .flow { fill: none; stroke: #78716c; stroke-width: 1.6; }
+    .flow-dash { fill: none; stroke: #a8a29e; stroke-width: 1.6; stroke-dasharray: 5 4; }
+    .flow-blue { fill: none; stroke: #1d4ed8; stroke-width: 1.8; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#78716c"/>
+    </marker>
+    <marker id="arrow-dash" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a8a29e"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="1000" rx="18"/>
+
+  <text class="title" x="48" y="58">AgentDesk, the current path</text>
+  <text class="subtitle" x="48" y="84">Two live processes on the Mac, the sessions they run, and the network around them.</text>
+
+  <!-- surfaces -->
+  <rect class="surface" x="48" y="110" width="300" height="86" rx="12"/>
+  <text class="box-title t-blue" x="68" y="140">Browser</text>
+  <text class="body" x="68" y="162">Mac or phone</text>
+  <text class="body" x="68" y="182">touch or pointer</text>
+
+  <rect class="surface" x="368" y="110" width="300" height="86" rx="12"/>
+  <text class="box-title t-blue" x="388" y="140">Mac app</text>
+  <text class="body" x="388" y="162">webview, starts at login</text>
+  <text class="body" x="388" y="182">Screen Recording + Accessibility</text>
+
+  <rect class="external" x="828" y="110" width="332" height="86" rx="12"/>
+  <text class="box-title t-gray" x="848" y="140">Claude remote control</text>
+  <text class="body" x="848" y="162">Claude's own, from a phone or the web</text>
+  <text class="body" x="848" y="182">reaches terminal sessions only</text>
+
+  <path class="flow" d="M198,196 V230" marker-end="url(#arrow)"/>
+  <path class="flow" d="M518,196 V230" marker-end="url(#arrow)"/>
+  <text class="label" x="358" y="218" text-anchor="middle">loads the panel</text>
+
+  <!-- panel -->
+  <rect class="panel" x="48" y="230" width="700" height="112" rx="12"/>
+  <text class="box-title t-blue" x="68" y="262">Panel: React + Vite</text>
+  <text class="body" x="68" y="290">Desktop · Feed (Canvas, Messages) · Group</text>
+  <text class="body" x="68" y="314">Screen · Terminals · IDE · Arena · Camera · Branches</text>
+  <text class="small" x="520" y="290">one codebase:</text>
+  <text class="small" x="520" y="310">browser, Mac webview, bundled</text>
+
+  <path class="flow" d="M198,342 V398" marker-end="url(#arrow)"/>
+  <text class="label" x="208" y="368">same origin: HTTP + SSE</text>
+
+  <!-- on the Mac -->
+  <rect class="container" x="48" y="358" width="812" height="582" rx="14"/>
+  <text class="kicker" x="68" y="382">ON THIS MAC</text>
+
+  <rect class="dev" x="68" y="398" width="360" height="94" rx="10"/>
+  <text class="box-title t-slate" x="88" y="426">Vite dev server</text>
+  <text class="body" x="88" y="448">serves the panel on one origin</text>
+  <text class="small mono" x="88" y="466">/api · /api/group/ · /session/&lt;id&gt;/api</text>
+  <text class="small" x="88" y="484">/vnc relay · TLS + HTTP/2 on the tailnet</text>
+
+  <path class="flow" d="M198,492 V520" marker-end="url(#arrow)"/>
+  <text class="label" x="208" y="510">/api</text>
+
+  <rect class="sidecar" x="68" y="520" width="360" height="260" rx="12"/>
+  <text class="box-title s-title" x="88" y="550">Sidecar</text>
+  <text class="small s-small" x="88" y="570">Bun, under a supervisor</text>
+  <text class="body s-body" x="88" y="596">HTTP API + SSE for every live view</text>
+  <text class="body s-body" x="88" y="618">starts, drives, resumes and forks sessions</text>
+  <text class="body s-body" x="88" y="640">reads transcripts, usage and summaries</text>
+  <text class="body s-body" x="88" y="662">hub client, ask_owner, web push, speech</text>
+  <text class="body s-body" x="88" y="684">spawns the capture and input helper</text>
+  <text class="small s-small" x="88" y="706">restarts when its source changes</text>
+
+  <path class="flow" d="M428,462 H443 V560 H530" marker-end="url(#arrow)"/>
+  <text class="label" x="448" y="454">/api/group/</text>
+
+  <path class="flow" d="M428,600 H458" marker-end="url(#arrow)"/>
+
+  <rect class="group" x="458" y="560" width="200" height="160" rx="10"/>
+  <text class="box-title t-purple" x="478" y="588">Group</text>
+  <text class="small" x="478" y="608">own process, Effect</text>
+  <text class="small" x="478" y="632">started by the sidecar</text>
+  <text class="small" x="478" y="652">rooms and dispatch</text>
+  <text class="small" x="478" y="672">SQLite store</text>
+  <text class="small" x="478" y="692">OTLP telemetry in</text>
+  <text class="tiny mono" x="478" y="712">port + 2, /api/group/</text>
+
+  <rect class="desktop" x="680" y="520" width="160" height="160" rx="10"/>
+  <text class="box-title-sm t-amber" x="696" y="548">Desktop</text>
+  <text class="tiny" x="696" y="566">WebRTC video + control</text>
+  <text class="small" x="696" y="590">grid-encoder (Swift)</text>
+  <text class="small" x="696" y="610">ScreenCaptureKit</text>
+  <text class="small" x="696" y="630">CGEvent input</text>
+  <text class="tiny" x="696" y="652">spawned by the sidecar</text>
+
+  <path class="flow-blue" d="M748,300 H768 V520" marker-end="url(#arrow-blue)"/>
+  <text class="label t-blue" x="756" y="292">WebRTC: video + control</text>
+
+  <path class="flow" d="M428,412 H884 V740 H900" marker-end="url(#arrow)"/>
+  <text class="label mono" x="600" y="404">/session/&lt;id&gt;/api</text>
+
+  <path class="flow-dash" d="M428,760 H892 V470 H900" marker-end="url(#arrow-dash)"/>
+  <text class="label" x="600" y="752">HTTPS: stream + send</text>
+
+  <!-- the machine's other pieces -->
+  <path class="flow" d="M148,780 V810" marker-end="url(#arrow)"/>
+  <text class="label" x="156" y="798">tmux</text>
+  <path class="flow" d="M350,780 V810" marker-end="url(#arrow)"/>
+  <text class="label" x="358" y="798">serve</text>
+  <path class="flow" d="M418,780 L560,810" marker-end="url(#arrow)"/>
+  <text class="label" x="480" y="800">reads</text>
+
+  <rect class="session" x="68" y="810" width="200" height="110" rx="10"/>
+  <text class="box-title-sm t-green" x="84" y="838">tmux panes</text>
+  <text class="tiny" x="84" y="860">Claude terminal (default)</text>
+  <text class="tiny" x="84" y="880">Agent SDK runner (opt-in)</text>
+  <text class="tiny" x="84" y="900">opencode TUI</text>
+
+  <rect class="session" x="288" y="810" width="180" height="110" rx="10"/>
+  <text class="box-title-sm t-green" x="304" y="838">opencode serve</text>
+  <text class="tiny" x="304" y="860">one per machine, :49374</text>
+  <text class="tiny" x="304" y="880">opencode's own client</text>
+  <text class="tiny" x="304" y="900">started separately</text>
+
+  <rect class="session" x="488" y="810" width="192" height="110" rx="10"/>
+  <text class="box-title-sm t-green mono" x="504" y="838">~/.claude/projects</text>
+  <text class="tiny" x="504" y="860">transcripts, read only</text>
+  <text class="tiny" x="504" y="880">one recursive watch</text>
+  <text class="tiny" x="504" y="900">fills the catalog</text>
+
+  <rect class="desktop" x="700" y="810" width="140" height="110" rx="10"/>
+  <text class="box-title-sm t-amber" x="714" y="838">Screen Sharing</text>
+  <text class="tiny" x="714" y="860">:5900, noVNC</text>
+  <text class="tiny" x="714" y="880">via the /vnc relay</text>
+  <text class="tiny" x="714" y="900">login window too</text>
+
+  <!-- beyond this Mac -->
+  <rect class="external" x="900" y="398" width="260" height="200" rx="12"/>
+  <text class="box-title t-gray" x="920" y="428">Messaging hub</text>
+  <text class="small" x="920" y="448">outside this Mac</text>
+  <text class="small" x="920" y="476">Cloudflare Access + SQLite</text>
+  <text class="small" x="920" y="498">threads and deliveries</text>
+  <text class="small" x="920" y="520">a directory of addresses</text>
+  <text class="small" x="920" y="542">human ↔ agent, agent ↔ agent</text>
+
+  <rect class="external" x="900" y="650" width="260" height="180" rx="12"/>
+  <text class="box-title-sm t-gray" x="920" y="680">Another Mac or Linux</text>
+  <text class="small" x="920" y="700">its own sidecar, over Tailscale</text>
+  <text class="small" x="920" y="728">sessions in the same panel</text>
+  <text class="small mono" x="920" y="750">reached at /session/&lt;id&gt;/api</text>
+  <text class="small" x="920" y="772">published to the same hub</text>
+
+  <path class="flow-dash" d="M1030,598 V650" marker-end="url(#arrow-dash)"/>
+  <text class="label" x="1042" y="628">same hub</text>
+
+  <!-- legend -->
+  <line class="flow" x1="68" y1="958" x2="108" y2="958"/>
+  <text class="small" x="116" y="962">local HTTP or process</text>
+  <line class="flow-dash" x1="288" y1="958" x2="328" y2="958"/>
+  <text class="small" x="336" y="962">over the network</text>
+  <line class="flow-blue" x1="508" y1="958" x2="548" y2="958"/>
+  <text class="small" x="556" y="962">WebRTC</text>
+  <text class="tiny" x="1160" y="962" text-anchor="end">current path, 2026-10-31</text>
+
+  <circle cx="73" cy="978" r="5" fill="#1d4ed8"/>
+  <text class="small" x="85" y="982">panel</text>
+  <circle cx="173" cy="978" r="5" fill="#0f172a"/>
+  <text class="small" x="185" y="982">sidecar</text>
+  <circle cx="281" cy="978" r="5" fill="#15803d"/>
+  <text class="small" x="293" y="982">sessions</text>
+  <circle cx="377" cy="978" r="5" fill="#6d28d9"/>
+  <text class="small" x="389" y="982">Group</text>
+  <circle cx="467" cy="978" r="5" fill="#b45309"/>
+  <text class="small" x="479" y="982">native</text>
+</svg>
